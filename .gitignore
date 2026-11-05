@@ -1,0 +1,14 @@
+# 실제 문제와 개인 학습 데이터는 공개 저장소에 커밋하지 않는다.
+*.pdf
+*.json
+questions/
+records/
+analysis/
+private/
+results/
+
+# 로컬 임시 파일
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak

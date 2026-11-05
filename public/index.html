@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="전기기사 CBT">
+  <title>전기기사 AI CBT</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">E</span>
+        <div>
+          <p class="eyebrow">개인 학습용 · 정적 프로토타입</p>
+          <h1>전기기사 AI CBT</h1>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="font-size" type="button" class="icon-button" aria-label="글자 크기 변경">가<span>가</span></button>
+        <button id="fullscreen" type="button" class="icon-button" aria-label="전체 화면">⛶</button>
+        <button id="answer-sheet-toggle" type="button" class="icon-button answer-toggle" aria-label="답안지 열기">답안</button>
+        <div class="timer-panel" aria-live="polite">
+          <span>남은 시간</span>
+          <strong id="timer">--:--:--</strong>
+        </div>
+      </div>
+    </header>
+
+    <section id="loader" class="launch-panel">
+      <div class="launch-copy">
+        <span class="mode-chip">PROTOTYPE</span>
+        <h2>실제 시험 흐름을<br>더미 100문제로 확인하세요.</h2>
+        <p>문제 원문과 정답은 배포되지 않습니다. 실제 회차는 iPad 파일 앱에서 JSON을 선택해 불러옵니다.</p>
+        <div class="launch-actions">
+          <button id="start-demo" type="button">100문제 데모 시작</button>
+          <label class="file-button secondary-button">
+            회차 JSON 불러오기
+            <input id="exam-file" type="file" accept="application/json,.json">
+          </label>
+        </div>
+        <p id="loader-message" class="message" role="status"></p>
+      </div>
+      <div class="feature-grid" aria-label="프로토타입 기능">
+        <article><strong>100</strong><span>더미 문항</span></article>
+        <article><strong>150</strong><span>분 타이머</span></article>
+        <article><strong>1분</strong><span>자동 저장</span></article>
+        <article><strong>JSON</strong><span>결과 공유</span></article>
+      </div>
+    </section>
+
+    <section id="exam" class="exam-workspace hidden" aria-live="polite">
+      <div class="exam-main">
+        <div class="exam-info-bar">
+          <div>
+            <span id="exam-mode" class="mode-chip"></span>
+            <strong id="exam-title"></strong>
+          </div>
+          <span id="exam-progress"></span>
+        </div>
+        <div id="question-board" class="question-board"></div>
+      </div>
+
+      <aside id="answer-sheet" class="answer-sheet" aria-label="답안지">
+        <div class="answer-sheet-header">
+          <div>
+            <strong>답안지</strong>
+            <span id="answer-count">0 / 100</span>
+          </div>
+          <button id="close-answer-sheet" type="button" class="close-sheet" aria-label="답안지 닫기">×</button>
+        </div>
+        <div id="answer-grid" class="answer-grid"></div>
+        <div class="answer-legend">
+          <span><i class="dot answered"></i>답변</span>
+          <span><i class="dot flagged"></i>검토</span>
+        </div>
+      </aside>
+      <button id="sheet-backdrop" type="button" class="sheet-backdrop" aria-label="답안지 닫기"></button>
+    </section>
+
+    <footer id="exam-footer" class="exam-footer hidden">
+      <div class="save-group">
+        <span id="save-status">아직 저장되지 않음</span>
+        <button id="backup" type="button" class="text-button">중간 백업</button>
+      </div>
+      <div class="pagination">
+        <button id="previous" type="button" class="icon-button" aria-label="이전 페이지">‹</button>
+        <strong><span id="current-page">1</span> / <span id="total-pages">50</span></strong>
+        <button id="next" type="button" class="icon-button" aria-label="다음 페이지">›</button>
+        <label class="page-size-control">
+          <select id="page-size" aria-label="한 페이지 문제 수">
+            <option value="1">1 / page</option>
+            <option value="2" selected>2 / page</option>
+          </select>
+        </label>
+      </div>
+      <button id="finish" type="button" class="submit-button">시험 완료</button>
+    </footer>
+
+    <section id="completed" class="completed-panel hidden">
+      <span class="completion-icon">✓</span>
+      <p class="eyebrow">제출 완료</p>
+      <h2>시험 결과 파일이 준비됐습니다.</h2>
+      <p id="completion-summary"></p>
+      <div class="completion-actions">
+        <button id="share-result" type="button">iPad에서 공유</button>
+        <button id="download-result" type="button" class="secondary-button">JSON 다운로드</button>
+      </div>
+      <p id="share-message" class="message" role="status"></p>
+    </section>
+  </main>
+
+  <script src="demo-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

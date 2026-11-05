@@ -1,0 +1,28 @@
+# 전기기사 AI CBT — 공개 실행 화면
+
+전기기사 개인 학습용 CBT의 **공개 배포 전용 저장소**입니다.
+
+이 저장소에는 다음 파일만 포함합니다.
+
+- 정적 HTML/CSS/JavaScript 실행 화면
+- 창작 더미 문제
+- PWA 및 GitHub Pages 배포 설정
+
+## 중요한 데이터 분리 원칙
+
+실제 기출문제, 복원문제, 정답, PDF, 응시 결과와 분석 데이터는 이 공개 저장소에 올리지 않습니다.
+실제 회차는 배포된 화면에서 사용자가 보유한 JSON 파일을 직접 불러와 사용합니다. 선택한 파일과 답안은 브라우저 안에서만 처리되며 서버로 전송하지 않습니다.
+
+## 배포
+
+`main` 브랜치의 `public/` 폴더가 변경되면 GitHub Actions가 GitHub Pages에 자동으로 배포합니다.
+
+저장소의 `Settings → Pages → Build and deployment → Source`를 `GitHub Actions`로 선택하면 됩니다.
+
+배포 주소:
+
+<https://swy9112.github.io/electrician-ai-cbt-pages/>
+
+## 실제 데이터 보관 위치
+
+개발 원본과 개인 학습 데이터는 비공개 저장소 `electrician-ai-cbt`에서 관리합니다. 공개 화면을 수정할 때는 검토된 `cbt/` 실행 파일만 이 저장소의 `public/` 폴더로 동기화합니다.
