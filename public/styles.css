@@ -111,6 +111,10 @@ button:disabled, select:disabled { cursor: not-allowed; opacity: .48; }
 .choice input { position: absolute; opacity: 0; pointer-events: none; }
 .choice-badge { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 10px; background: #f1f3f6; font-size: 13px; font-weight: 900; }
 .choice:has(input:checked) .choice-badge { background: var(--primary); color: #fff; }
+.hint-box { margin-top: 18px; overflow: hidden; border: 1px solid #d7def8; border-radius: 13px; background: #f7f8ff; }
+.hint-toggle { min-height: 48px; display: flex; align-items: center; gap: 9px; padding: 0 15px; color: #344b9b; font-size: 13px; font-weight: 850; cursor: pointer; }
+.hint-toggle input { width: 17px; height: 17px; accent-color: var(--primary); }
+.hint-content { padding: 14px 15px 16px; border-top: 1px solid #dfe4f8; color: #33415a; font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
 .memo-box { margin-top: 20px; border: 1px solid var(--line); border-radius: 13px; background: #fafbfc; }
 .memo-box summary { padding: 13px 15px; cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 800; }
 .memo-box textarea { width: calc(100% - 24px); margin: 0 12px 12px; resize: vertical; border: 1px solid var(--line); border-radius: 9px; padding: 10px; background: #fff; }

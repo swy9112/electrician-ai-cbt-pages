@@ -133,19 +133,32 @@ function activateQuestionBank(value) {
 }
 
 function validateQuestionBank(value) {
-  if (!value || typeof value !== "object" || value.schemaVersion !== 4) throw new Error("지원하는 문제은행 형식(v4)이 아닙니다.");
+  if (!value || typeof value !== "object" || value.schemaVersion !== 5) throw new Error("지원하는 문제은행 형식(v5)이 아닙니다.");
   if (!Array.isArray(value.questions) || value.questions.length === 0) throw new Error("문제가 없습니다.");
   const ids = new Set();
   value.questions.forEach((question, index) => {
-    if (!question.id || !question.subjectCode || !question.subject || !question.stem || !question.source || !Array.isArray(question.choices) || question.choices.length < 2) {
+    if (!question.id || !question.subjectCode || !question.subject || !question.stem || !question.source || !Array.isArray(question.choices) || question.choices.length !== 4) {
       throw new Error(`${index + 1}번째 문제 구조가 올바르지 않습니다.`);
+    }
+    if (!question.answer?.choiceId || typeof question.answer.explanation !== "string" || !question.answer.explanation.trim()) {
+      throw new Error(`${index + 1}번째 문제의 정답 또는 해설이 없습니다.`);
+    }
+    if (!question.choices.some((choice) => choice.id === question.answer.choiceId)) {
+      throw new Error(`${index + 1}번째 문제의 정답이 선택지에 없습니다.`);
     }
     if (!/^[A-Z][A-Z0-9_]+$/.test(question.subjectCode)) {
       throw new Error(`${index + 1}번째 문제의 subjectCode가 올바르지 않습니다.`);
     }
     const expectedId = canonicalQuestionId(question);
+    if (["official_past_exam", "licensed_reference", "user_owned"].includes(question.source.kind) && !expectedId) {
+      throw new Error(`${index + 1}번째 실제 문항의 연도·회차·형식·원문 번호가 불완전합니다.`);
+    }
     if (expectedId && question.id !== expectedId) {
       throw new Error(`${index + 1}번째 문제 ID는 ${expectedId}여야 합니다.`);
+    }
+    const choiceIds = question.choices.map((choice) => choice.id);
+    if (choiceIds.some((id) => !id) || question.choices.some((choice) => typeof choice.text !== "string" || !choice.text.trim()) || new Set(choiceIds).size !== 4) {
+      throw new Error(`${index + 1}번째 문제의 선택지 ID·내용이 비어 있거나 ID가 중복됩니다.`);
     }
     if (question.image && !/^data:image\/(png|jpeg|webp|svg\+xml);base64,/i.test(question.image)) {
       throw new Error(`${index + 1}번째 문제 이미지는 문제은행에 포함된 base64 이미지여야 합니다.`);
@@ -247,7 +260,7 @@ function startQuickFromBank() {
     const candidates = verifiedQuestions().filter((question) => selectedSubject === "all" || question.subject === selectedSubject);
     if (!candidates.length) throw new Error("선택한 과목에 검증 완료 문제가 없습니다.");
     const label = selectedSubject === "all" ? "전과목" : selectedSubject;
-    loadExam(buildExamPackage(candidates, `question-bank-${selectedSubject}`, `${label} 틈새학습`, "custom"), "quick");
+    loadExam(buildExamPackage(candidates, `question-bank-${selectedSubject}`, `${label} 틈새학습`, "custom", true), "quick");
   } catch (error) {
     elements.loaderMessage.textContent = `틈새학습 시작 실패: ${error.message}`;
   }
@@ -302,10 +315,13 @@ function refreshWeaknessControls() {
 }
 
 function exportQuestionStatistics() {
-  const statistics = Object.values(readStoredObject(QUESTION_STATS_KEY));
+  const statistics = Object.values(readStoredObject(QUESTION_STATS_KEY)).map((record) => ({
+    ...record,
+    hintViewCount: record.hintViewCount || 0
+  }));
   if (!statistics.length) return;
   downloadJson({
-    schemaVersion: 1,
+    schemaVersion: 2,
     exportedAt: new Date().toISOString(),
     deviceScope: "browser_local",
     statistics
@@ -327,21 +343,21 @@ function startWrongReview() {
   }
 }
 
-function buildExamPackage(questions, examId, title, mode) {
+function buildExamPackage(questions, examId, title, mode, includeHints = false) {
   return {
     schemaVersion: 1,
     examId,
-    attemptId: examId,
+    attemptId: null,
     title,
     mode,
     timeLimitMinutes: 150,
     questionCount: questions.length,
-    questions: questions.map(toExamQuestion)
+    questions: questions.map((question) => toExamQuestion(question, includeHints))
   };
 }
 
-function toExamQuestion(question) {
-  return {
+function toExamQuestion(question, includeHint = false) {
+  const examQuestion = {
     id: question.id,
     subject: question.subject,
     stem: question.stem,
@@ -349,6 +365,8 @@ function toExamQuestion(question) {
     imageAlt: question.imageAlt || null,
     choices: question.choices.map((choice) => ({ id: choice.id, text: choice.text }))
   };
+  if (includeHint) examQuestion.explanationHint = question.answer.explanation;
+  return examQuestion;
 }
 
 async function clearQuestionBank() {
@@ -362,6 +380,8 @@ async function clearQuestionBank() {
 function loadExam(value, studyMode) {
   activeStudyMode = studyMode;
   examPackage = prepareExamForStudyMode(value, studyMode);
+  const resumableAttemptId = findResumableAttemptId(examPackage, studyMode);
+  examPackage.attemptId = resumableAttemptId || createAttemptId(examPackage.examId);
   validateExamPackage(examPackage, studyMode);
   initializeState();
   startExamUi();
@@ -381,11 +401,29 @@ function prepareExamForStudyMode(source, studyMode) {
 
   return {
     ...source,
-    attemptId: `${source.attemptId}-quick-${dateKey}-${questions.length}`,
     title: `${studyMode === "wrong" ? "오답 보완" : "틈새학습"} ${questions.length}문제 · ${source.title}`,
     questionCount: questions.length,
     questions
   };
+}
+
+function createAttemptId(examId) {
+  const suffix = globalThis.crypto?.randomUUID?.().slice(0, 8) || Math.random().toString(36).slice(2, 10);
+  return `${examId}-${Date.now()}-${suffix}`;
+}
+
+function findResumableAttemptId(preparedExam, studyMode) {
+  const expectedQuestionIds = preparedExam.questions.map((question) => question.id);
+  let latest = null;
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith(`${STORAGE_PREFIX}:${studyMode}:${preparedExam.examId}:`)) continue;
+    const saved = readSavedState(key);
+    if (saved?.status !== "in_progress") continue;
+    if (JSON.stringify(saved.questionIds || []) !== JSON.stringify(expectedQuestionIds)) continue;
+    if (!latest || String(saved.lastSavedAt || saved.startedAt) > String(latest.lastSavedAt || latest.startedAt)) latest = saved;
+  }
+  return latest?.attemptId || null;
 }
 
 function koreaDateKey() {
@@ -417,14 +455,15 @@ function validateExamPackage(value, studyMode) {
   if (!["real", "custom", "development"].includes(value.mode)) throw new Error("지원하지 않는 시험 모드입니다.");
   if (!Array.isArray(value.questions) || value.questions.length === 0) throw new Error("문제가 없습니다.");
   if (value.questionCount !== value.questions.length) throw new Error("questionCount와 실제 문제 수가 다릅니다.");
-  if (studyMode !== "quick" && value.mode !== "development" && value.questions.length !== 100) throw new Error("실전 회차는 정확히 100문제여야 합니다.");
+  if (studyMode === "exam" && value.mode !== "development" && value.questions.length !== 100) throw new Error("실전 회차는 정확히 100문제여야 합니다.");
 
   const ids = new Set();
   for (const [index, question] of value.questions.entries()) {
-    if (!question.id || !question.stem || !Array.isArray(question.choices) || question.choices.length < 2) {
+    if (!question.id || !question.stem || !Array.isArray(question.choices) || question.choices.length !== 4) {
       throw new Error(`${index + 1}번 문제 구조가 올바르지 않습니다.`);
     }
     if (question.answer || question.correctChoiceId) throw new Error("시험 파일에 정답 정보가 포함되어 있습니다.");
+    if (studyMode !== "quick" && question.explanationHint) throw new Error("해설 힌트는 틈새학습에서만 사용할 수 있습니다.");
     if (ids.has(question.id)) throw new Error(`중복 문제 ID: ${question.id}`);
     const choiceIds = question.choices.map((choice) => choice.id);
     if (choiceIds.some((id) => !id) || new Set(choiceIds).size !== choiceIds.length) {
@@ -488,9 +527,16 @@ function initializeState() {
   if (saved && saved.status === "in_progress") {
     const resume = window.confirm("진행 중인 동일 시험 기록이 있습니다. 이어서 응시하시겠습니까?\n\n취소하면 새 응시 상태로 시작합니다.");
     if (resume) {
-      state = { ...saved, pageSize: saved.pageSize || defaultPageSize(), memos: saved.memos || {} };
+      state = {
+        ...saved,
+        pageSize: saved.pageSize || defaultPageSize(),
+        memos: saved.memos || {},
+        hintedQuestionIds: saved.hintedQuestionIds || [],
+        visibleHintQuestionIds: saved.visibleHintQuestionIds || []
+      };
       return;
     }
+    examPackage.attemptId = createAttemptId(examPackage.examId);
   }
 
   const now = Date.now();
@@ -501,6 +547,8 @@ function initializeState() {
     attemptId: examPackage.attemptId,
     mode: examPackage.mode,
     studyMode: activeStudyMode,
+    questionIds: examPackage.questions.map((question) => question.id),
+    questionCount: examPackage.questions.length,
     status: "in_progress",
     startedAt: new Date(now).toISOString(),
     deadlineAt: activeStudyMode === "exam" ? new Date(now + 150 * 60_000).toISOString() : null,
@@ -509,6 +557,8 @@ function initializeState() {
     pageSize: defaultPageSize(),
     answers: {},
     flaggedQuestionIds: [],
+    hintedQuestionIds: [],
+    visibleHintQuestionIds: [],
     memos: {},
     lastSavedAt: null
   };
@@ -630,7 +680,38 @@ function createQuestionCard(question, index) {
     saveState();
   });
   memo.append(summary, textarea);
-  article.append(choices, memo);
+  article.appendChild(choices);
+
+  if (activeStudyMode === "quick" && question.explanationHint) {
+    const hintBox = document.createElement("section");
+    hintBox.className = "hint-box";
+    const hintLabel = document.createElement("label");
+    hintLabel.className = "hint-toggle";
+    const hintCheckbox = document.createElement("input");
+    hintCheckbox.type = "checkbox";
+    hintCheckbox.checked = state.visibleHintQuestionIds.includes(question.id);
+    hintLabel.append(hintCheckbox, document.createTextNode("해설 힌트 보기"));
+    const hint = document.createElement("div");
+    hint.className = "hint-content";
+    hint.textContent = question.explanationHint;
+    hint.hidden = !hintCheckbox.checked;
+    hintCheckbox.addEventListener("change", () => {
+      const visibleHints = new Set(state.visibleHintQuestionIds);
+      if (hintCheckbox.checked) {
+        visibleHints.add(question.id);
+        state.hintedQuestionIds = [...new Set([...state.hintedQuestionIds, question.id])];
+      } else {
+        visibleHints.delete(question.id);
+      }
+      state.visibleHintQuestionIds = [...visibleHints];
+      hint.hidden = !hintCheckbox.checked;
+      saveState();
+    });
+    hintBox.append(hintLabel, hint);
+    article.appendChild(hintBox);
+  }
+
+  article.appendChild(memo);
   return article;
 }
 
@@ -851,6 +932,7 @@ function updateLearningProgress(grading) {
   const wrongBook = readStoredObject(WRONG_BOOK_KEY);
   const statistics = readStoredObject(QUESTION_STATS_KEY);
   const bankQuestions = new Map(verifiedQuestions().map((question) => [question.id, question]));
+  const completedRealExam = activeStudyMode === "exam" && examPackage.mode === "real" && examPackage.questions.length === 100;
 
   if (activeStudyMode === "exam" && examPackage.mode === "real") {
     const progress = readStoredObject(EXAM_PROGRESS_KEY);
@@ -883,11 +965,12 @@ function updateLearningProgress(grading) {
       unansweredCount: (previousStats.unansweredCount || 0) + (!answered ? 1 : 0),
       reviewAttemptCount: (previousStats.reviewAttemptCount || 0) + (activeStudyMode === "wrong" ? 1 : 0),
       reviewCorrectCount: (previousStats.reviewCorrectCount || 0) + (activeStudyMode === "wrong" && item.isCorrect === true ? 1 : 0),
+      hintViewCount: (previousStats.hintViewCount || 0) + (state.hintedQuestionIds.includes(item.questionId) ? 1 : 0),
       consecutiveCorrect: item.isCorrect === true ? (previousStats.consecutiveCorrect || 0) + 1 : 0,
       lastAttemptAt: now,
       lastWrongAt: item.isCorrect === false ? now : previousStats.lastWrongAt || null
     };
-    if (item.isCorrect === false) {
+    if (item.isCorrect === false && (completedRealExam || (activeStudyMode === "wrong" && wrongBook[item.questionId]))) {
       const previous = wrongBook[item.questionId];
       wrongBook[item.questionId] = {
         questionId: item.questionId,
@@ -916,7 +999,7 @@ function readStoredObject(key) {
 
 function buildResult(grading) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId: state.sessionId,
     examId: state.examId,
     attemptId: state.attemptId,
@@ -940,6 +1023,7 @@ function buildResult(grading) {
       selectedChoiceId: state.answers[question.id] || null,
       flagged: state.flaggedQuestionIds.includes(question.id),
       memo: state.memos[question.id] || null,
+      hintViewed: state.hintedQuestionIds.includes(question.id),
       isCorrect: grading?.items.find((item) => item.questionId === question.id)?.isCorrect ?? null
     }))
   };
