@@ -1,7 +1,7 @@
 "use strict";
 
-const CACHE_NAME = "electrician-cbt-prototype-v8";
-const ASSETS = ["./", "./index.html", "./styles.css", "./demo-data.js", "./app.js", "./manifest.webmanifest", "./icon.svg"];
+const CACHE_NAME = "electrician-cbt-prototype-v9";
+const ASSETS = ["./", "./index.html", "./styles.css", "./supabase-config.js", "./demo-data.js", "./app.js", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
@@ -15,6 +15,7 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  if (new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(fetch(event.request).then((response) => {
     const copy = response.clone();
     caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));

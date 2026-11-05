@@ -41,6 +41,30 @@
         <p>실제 문제와 정답은 공개 저장소에 포함되지 않습니다. 등록한 문제은행은 이 브라우저 안에서만 처리됩니다.</p>
       </div>
 
+      <section class="sync-panel" aria-labelledby="sync-heading">
+        <div class="sync-copy">
+          <span class="mode-chip">MULTI-DEVICE SYNC</span>
+          <strong id="sync-heading">여러 기기 학습 기록</strong>
+          <span id="auth-status">로그인하면 완료한 응시 결과와 오답 통계를 여러 기기에서 공유합니다.</span>
+        </div>
+        <form id="auth-form" class="auth-form">
+          <label>
+            이메일
+            <input id="auth-email" type="email" autocomplete="username" required>
+          </label>
+          <label>
+            비밀번호
+            <input id="auth-password" type="password" autocomplete="current-password" required>
+          </label>
+          <button id="sign-in" type="submit">로그인</button>
+        </form>
+        <div id="signed-in-actions" class="signed-in-actions hidden">
+          <button id="sync-now" type="button">지금 동기화</button>
+          <button id="sign-out" type="button" class="secondary-button">로그아웃</button>
+        </div>
+        <p id="sync-status" class="sync-status" role="status"></p>
+      </section>
+
       <section class="bank-panel" aria-labelledby="bank-heading">
         <div class="bank-copy">
           <span class="mode-chip">LOCAL QUESTION BANK</span>
@@ -218,6 +242,8 @@
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
   <script src="demo-data.js"></script>
   <script src="app.js"></script>
 </body>

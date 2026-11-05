@@ -8,6 +8,7 @@ const ACTIVE_BANK_KEY = "active";
 const EXAM_PROGRESS_KEY = "electrician-cbt:exam-progress:v1";
 const WRONG_BOOK_KEY = "electrician-cbt:wrong-book:v1";
 const QUESTION_STATS_KEY = "electrician-cbt:question-statistics:v1";
+const SYNC_QUEUE_KEY = "electrician-cbt:sync-queue:v1";
 const SUBJECT_ORDER = ["전기자기학", "전력공학", "전기기기", "회로이론 및 제어공학", "전기설비기술기준"];
 
 const elements = {
@@ -15,6 +16,14 @@ const elements = {
   bankFile: document.querySelector("#bank-file"),
   clearBank: document.querySelector("#clear-bank"),
   bankStatus: document.querySelector("#bank-status"),
+  authForm: document.querySelector("#auth-form"),
+  authEmail: document.querySelector("#auth-email"),
+  authPassword: document.querySelector("#auth-password"),
+  authStatus: document.querySelector("#auth-status"),
+  signedInActions: document.querySelector("#signed-in-actions"),
+  signOut: document.querySelector("#sign-out"),
+  syncNow: document.querySelector("#sync-now"),
+  syncStatus: document.querySelector("#sync-status"),
   startQuickDemo: document.querySelector("#start-quick-demo"),
   startQuickBank: document.querySelector("#start-quick-bank"),
   startExamDemo: document.querySelector("#start-exam-demo"),
@@ -71,6 +80,9 @@ let autoSaveHandle = null;
 let finalResult = null;
 let activeStudyMode = "exam";
 let questionBank = null;
+let supabaseClient = null;
+let currentSyncUser = null;
+let syncInProgress = false;
 
 elements.startQuickDemo.addEventListener("click", () => loadExam(createDemoExam(), "quick"));
 elements.startExamDemo.addEventListener("click", () => loadExam(createDemoExam(), "exam"));
@@ -80,6 +92,9 @@ elements.startWrongReview.addEventListener("click", startWrongReview);
 elements.exportStatistics.addEventListener("click", exportQuestionStatistics);
 elements.bankFile.addEventListener("change", registerQuestionBank);
 elements.clearBank.addEventListener("click", clearQuestionBank);
+elements.authForm.addEventListener("submit", signInForSync);
+elements.signOut.addEventListener("click", signOutFromSync);
+elements.syncNow.addEventListener("click", () => synchronizeCloudData(true));
 elements.examYear.addEventListener("change", refreshRoundOptions);
 elements.examRound.addEventListener("change", updateExamCompletionStatus);
 elements.previous.addEventListener("click", () => movePage(-1));
@@ -100,6 +115,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 }
 
 initializeQuestionBank();
+initializeCloudSync();
 
 async function initializeQuestionBank() {
   try {
@@ -892,6 +908,8 @@ function finishExam(reason, skipConfirmation = false) {
   const grading = gradeCurrentAttempt();
   updateLearningProgress(grading);
   finalResult = buildResult(grading);
+  queueResultForCloudSync(finalResult);
+  void synchronizeCloudData(false);
   elements.exam.classList.add("hidden");
   elements.footer.classList.add("hidden");
   elements.completed.classList.remove("hidden");
@@ -1027,6 +1045,178 @@ function buildResult(grading) {
       isCorrect: grading?.items.find((item) => item.questionId === question.id)?.isCorrect ?? null
     }))
   };
+}
+
+async function initializeCloudSync() {
+  const config = window.CBT_SUPABASE_CONFIG;
+  if (!window.supabase?.createClient || !config?.url || !config?.publishableKey) {
+    elements.syncStatus.textContent = "클라우드 동기화 설정을 불러오지 못했습니다. 로컬 학습은 계속 사용할 수 있습니다.";
+    return;
+  }
+
+  supabaseClient = window.supabase.createClient(config.url, config.publishableKey, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+  });
+  supabaseClient.auth.onAuthStateChange((_event, session) => {
+    applySyncUser(session?.user || null);
+    if (session?.user) window.setTimeout(() => synchronizeCloudData(false), 0);
+  });
+
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) {
+    elements.syncStatus.textContent = `로그인 상태 확인 실패: ${error.message}`;
+    return;
+  }
+  applySyncUser(data.session?.user || null);
+  if (data.session?.user) await synchronizeCloudData(false);
+}
+
+function applySyncUser(user) {
+  currentSyncUser = user;
+  elements.authForm.classList.toggle("hidden", Boolean(user));
+  elements.signedInActions.classList.toggle("hidden", !user);
+  elements.authStatus.textContent = user
+    ? `${user.email || "로그인 사용자"} · 완료 결과와 오답 통계를 동기화합니다.`
+    : "로그인하면 완료한 응시 결과와 오답 통계를 여러 기기에서 공유합니다.";
+}
+
+async function signInForSync(event) {
+  event.preventDefault();
+  if (!supabaseClient) return;
+  elements.syncStatus.textContent = "로그인 중…";
+  const { error } = await supabaseClient.auth.signInWithPassword({
+    email: elements.authEmail.value.trim(),
+    password: elements.authPassword.value
+  });
+  elements.authPassword.value = "";
+  if (error) {
+    elements.syncStatus.textContent = `로그인 실패: ${error.message}`;
+    return;
+  }
+  elements.syncStatus.textContent = "로그인했습니다. 저장된 기록을 동기화합니다.";
+}
+
+async function signOutFromSync() {
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.auth.signOut();
+  elements.syncStatus.textContent = error ? `로그아웃 실패: ${error.message}` : "로그아웃했습니다. 로컬 기록은 이 기기에 남아 있습니다.";
+}
+
+function queueResultForCloudSync(result) {
+  if (!result?.grading || result.mode === "development") return;
+  const queue = readStoredArray(SYNC_QUEUE_KEY);
+  if (!queue.some((item) => item.attemptId === result.attemptId)) queue.push(result);
+  localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(queue));
+}
+
+async function synchronizeCloudData(announce = true) {
+  if (!supabaseClient || !currentSyncUser || syncInProgress) {
+    if (announce && !currentSyncUser) elements.syncStatus.textContent = "먼저 로그인해 주세요.";
+    return;
+  }
+
+  syncInProgress = true;
+  elements.syncNow.disabled = true;
+  elements.syncStatus.textContent = "클라우드 기록 동기화 중…";
+  try {
+    const uploadedCount = await flushSyncQueue();
+    await pullCloudLearningData();
+    const pendingCount = readStoredArray(SYNC_QUEUE_KEY).length;
+    elements.syncStatus.textContent = pendingCount
+      ? `${pendingCount}개 결과가 기기에 대기 중입니다. 연결이 복구되면 다시 시도합니다.`
+      : `${uploadedCount ? `${uploadedCount}개 결과 업로드 · ` : ""}동기화 완료 ${new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`;
+  } catch (error) {
+    elements.syncStatus.textContent = `동기화 실패: ${error.message} · 결과는 이 기기에 보관되어 있습니다.`;
+  } finally {
+    syncInProgress = false;
+    elements.syncNow.disabled = false;
+  }
+}
+
+async function flushSyncQueue() {
+  const queue = readStoredArray(SYNC_QUEUE_KEY);
+  const remaining = [];
+  let uploadedCount = 0;
+  for (const result of queue) {
+    const { error } = await supabaseClient.rpc("ingest_exam_result", { payload: result });
+    if (error) remaining.push(result);
+    else uploadedCount += 1;
+  }
+  localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(remaining));
+  if (remaining.length && remaining.length === queue.length) throw new Error("DB에 결과를 저장하지 못했습니다. Supabase 스키마 적용 여부를 확인하세요.");
+  return uploadedCount;
+}
+
+async function pullCloudLearningData() {
+  const [attemptsResponse, wrongResponse, statisticsResponse] = await Promise.all([
+    supabaseClient.from("exam_attempts").select("exam_id,mode,study_mode,submitted_at,score_percent"),
+    supabaseClient.from("wrong_questions").select("question_id,wrong_count,last_wrong_at,last_exam_id"),
+    supabaseClient.from("question_statistics").select("question_id,attempt_count,correct_count,wrong_count,unanswered_count,review_attempt_count,review_correct_count,hint_view_count,consecutive_correct,last_attempt_at,last_wrong_at")
+  ]);
+  const firstError = attemptsResponse.error || wrongResponse.error || statisticsResponse.error;
+  if (firstError) throw firstError;
+  if (!attemptsResponse.data.length) return;
+
+  const wrongBook = Object.fromEntries(wrongResponse.data.map((record) => [record.question_id, {
+    questionId: record.question_id,
+    wrongCount: record.wrong_count,
+    lastWrongAt: record.last_wrong_at,
+    lastExamId: record.last_exam_id
+  }]));
+  localStorage.setItem(WRONG_BOOK_KEY, JSON.stringify(wrongBook));
+
+  const existingStatistics = readStoredObject(QUESTION_STATS_KEY);
+  const bankQuestions = new Map(verifiedQuestions().map((question) => [question.id, question]));
+  const statistics = Object.fromEntries(statisticsResponse.data.map((record) => {
+    const question = bankQuestions.get(record.question_id);
+    const existing = existingStatistics[record.question_id] || {};
+    return [record.question_id, {
+      questionId: record.question_id,
+      subjectCode: question?.subjectCode || existing.subjectCode || "UNKNOWN",
+      subject: question?.subject || existing.subject || "과목 미상",
+      source: question?.source ? {
+        examYear: question.source.examYear ?? null,
+        examRound: question.source.examRound ?? null,
+        examFormat: question.source.examFormat ?? null,
+        originalQuestionNumber: question.source.originalQuestionNumber ?? null
+      } : existing.source || null,
+      attemptCount: record.attempt_count,
+      correctCount: record.correct_count,
+      wrongCount: record.wrong_count,
+      unansweredCount: record.unanswered_count,
+      reviewAttemptCount: record.review_attempt_count,
+      reviewCorrectCount: record.review_correct_count,
+      hintViewCount: record.hint_view_count,
+      consecutiveCorrect: record.consecutive_correct,
+      lastAttemptAt: record.last_attempt_at,
+      lastWrongAt: record.last_wrong_at
+    }];
+  }));
+  localStorage.setItem(QUESTION_STATS_KEY, JSON.stringify(statistics));
+
+  const progress = {};
+  attemptsResponse.data
+    .filter((attempt) => attempt.study_mode === "exam" && attempt.mode === "real")
+    .forEach((attempt) => {
+      const previous = progress[attempt.exam_id];
+      progress[attempt.exam_id] = {
+        completedCount: (previous?.completedCount || 0) + 1,
+        lastCompletedAt: !previous || attempt.submitted_at > previous.lastCompletedAt ? attempt.submitted_at : previous.lastCompletedAt,
+        lastScorePercent: !previous || attempt.submitted_at > previous.lastCompletedAt ? attempt.score_percent : previous.lastScorePercent
+      };
+    });
+  localStorage.setItem(EXAM_PROGRESS_KEY, JSON.stringify(progress));
+  refreshWeaknessControls();
+  refreshRoundOptions();
+}
+
+function readStoredArray(key) {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function shareResult() {
