@@ -348,12 +348,16 @@ function startWrongReview() {
   try {
     const subject = elements.wrongSubject.value;
     const wrongBook = readStoredObject(WRONG_BOOK_KEY);
+    const dateKey = koreaDateKey();
+    const examId = `wrong-review-${subject}`;
+    // 많이 틀린 문제를 먼저 내고, 틀린 횟수가 같으면 날짜별 고정 순서로 섞어 같은 날 이어풀기가 가능하게 한다.
     const candidates = verifiedQuestions()
       .filter((question) => wrongBook[question.id] && (subject === "all" || question.subject === subject))
-      .sort((a, b) => wrongBook[b.id].wrongCount - wrongBook[a.id].wrongCount);
+      .sort((a, b) => (wrongBook[b.id].wrongCount || 0) - (wrongBook[a.id].wrongCount || 0)
+        || dailyQuestionScore(examId, dateKey, a.id) - dailyQuestionScore(examId, dateKey, b.id));
     if (!candidates.length) throw new Error("선택한 과목에 보완할 오답이 없습니다.");
     const label = subject === "all" ? "전과목" : subject;
-    loadExam(buildExamPackage(candidates, `wrong-review-${subject}`, `${label} 오답 보완학습`, "custom"), "wrong");
+    loadExam(buildExamPackage(candidates, examId, `${label} 오답 보완학습`, "custom"), "wrong");
   } catch (error) {
     elements.loaderMessage.textContent = `오답 보완학습 시작 실패: ${error.message}`;
   }
@@ -411,9 +415,11 @@ function prepareExamForStudyMode(source, studyMode) {
 
   const requestedCount = Number(studyMode === "wrong" ? elements.wrongCount.value : elements.quickCount.value);
   const dateKey = koreaDateKey();
-  const questions = [...source.questions]
-    .sort((a, b) => dailyQuestionScore(source.examId, dateKey, a.id) - dailyQuestionScore(source.examId, dateKey, b.id))
-    .slice(0, Math.min(requestedCount, source.questions.length));
+  // 오답 보완은 startWrongReview에서 정한 우선순위(틀린 횟수 순)를 그대로 쓰고, 틈새학습만 날짜별로 섞는다.
+  const ordered = studyMode === "wrong"
+    ? [...source.questions]
+    : [...source.questions].sort((a, b) => dailyQuestionScore(source.examId, dateKey, a.id) - dailyQuestionScore(source.examId, dateKey, b.id));
+  const questions = ordered.slice(0, Math.min(requestedCount, source.questions.length));
 
   return {
     ...source,
@@ -1148,16 +1154,14 @@ async function flushSyncQueue() {
 }
 
 async function pullCloudLearningData() {
-  const [attemptsResponse, wrongResponse, statisticsResponse] = await Promise.all([
-    supabaseClient.from("exam_attempts").select("exam_id,mode,study_mode,submitted_at,score_percent"),
-    supabaseClient.from("wrong_questions").select("question_id,wrong_count,last_wrong_at,last_exam_id"),
-    supabaseClient.from("question_statistics").select("question_id,attempt_count,correct_count,wrong_count,unanswered_count,review_attempt_count,review_correct_count,hint_view_count,consecutive_correct,last_attempt_at,last_wrong_at")
+  const [attemptRows, wrongRows, statisticsRows] = await Promise.all([
+    fetchAllRows("exam_attempts", "attempt_id,exam_id,mode,study_mode,submitted_at,score_percent", "attempt_id"),
+    fetchAllRows("wrong_questions", "question_id,wrong_count,last_wrong_at,last_exam_id", "question_id"),
+    fetchAllRows("question_statistics", "question_id,attempt_count,correct_count,wrong_count,unanswered_count,review_attempt_count,review_correct_count,hint_view_count,consecutive_correct,last_attempt_at,last_wrong_at", "question_id")
   ]);
-  const firstError = attemptsResponse.error || wrongResponse.error || statisticsResponse.error;
-  if (firstError) throw firstError;
-  if (!attemptsResponse.data.length) return;
+  if (!attemptRows.length) return;
 
-  const wrongBook = Object.fromEntries(wrongResponse.data.map((record) => [record.question_id, {
+  const wrongBook = Object.fromEntries(wrongRows.map((record) => [record.question_id, {
     questionId: record.question_id,
     wrongCount: record.wrong_count,
     lastWrongAt: record.last_wrong_at,
@@ -1167,7 +1171,7 @@ async function pullCloudLearningData() {
 
   const existingStatistics = readStoredObject(QUESTION_STATS_KEY);
   const bankQuestions = new Map(verifiedQuestions().map((question) => [question.id, question]));
-  const statistics = Object.fromEntries(statisticsResponse.data.map((record) => {
+  const statistics = Object.fromEntries(statisticsRows.map((record) => {
     const question = bankQuestions.get(record.question_id);
     const existing = existingStatistics[record.question_id] || {};
     return [record.question_id, {
@@ -1195,7 +1199,8 @@ async function pullCloudLearningData() {
   localStorage.setItem(QUESTION_STATS_KEY, JSON.stringify(statistics));
 
   const progress = {};
-  attemptsResponse.data
+  // 페이지를 나눠 받는 동안 다른 기기의 업로드로 같은 행이 두 번 올 수 있어 attempt_id로 중복을 제거한다.
+  [...new Map(attemptRows.map((attempt) => [attempt.attempt_id, attempt])).values()]
     .filter((attempt) => attempt.study_mode === "exam" && attempt.mode === "real")
     .forEach((attempt) => {
       const previous = progress[attempt.exam_id];
@@ -1208,6 +1213,23 @@ async function pullCloudLearningData() {
   localStorage.setItem(EXAM_PROGRESS_KEY, JSON.stringify(progress));
   refreshWeaknessControls();
   refreshRoundOptions();
+}
+
+// Supabase API는 한 번에 최대 행 수(기본 1000)만 돌려주므로 빈 페이지가 나올 때까지 나눠 받는다.
+// 서버의 최대 행 수 설정이 더 작아도 받은 행 수만큼 전진하므로 누락되지 않는다.
+async function fetchAllRows(table, columns, orderColumn) {
+  const pageSize = 1000;
+  const rows = [];
+  for (;;) {
+    const { data, error } = await supabaseClient
+      .from(table)
+      .select(columns)
+      .order(orderColumn, { ascending: true })
+      .range(rows.length, rows.length + pageSize - 1);
+    if (error) throw error;
+    if (!data?.length) return rows;
+    rows.push(...data);
+  }
 }
 
 function readStoredArray(key) {
