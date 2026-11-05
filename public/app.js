@@ -130,12 +130,19 @@ function activateQuestionBank(value) {
 }
 
 function validateQuestionBank(value) {
-  if (!value || typeof value !== "object" || value.schemaVersion !== 3) throw new Error("지원하는 문제은행 형식(v3)이 아닙니다.");
+  if (!value || typeof value !== "object" || value.schemaVersion !== 4) throw new Error("지원하는 문제은행 형식(v4)이 아닙니다.");
   if (!Array.isArray(value.questions) || value.questions.length === 0) throw new Error("문제가 없습니다.");
   const ids = new Set();
   value.questions.forEach((question, index) => {
-    if (!question.id || !question.subject || !question.stem || !question.source || !Array.isArray(question.choices) || question.choices.length < 2) {
+    if (!question.id || !question.subjectCode || !question.subject || !question.stem || !question.source || !Array.isArray(question.choices) || question.choices.length < 2) {
       throw new Error(`${index + 1}번째 문제 구조가 올바르지 않습니다.`);
+    }
+    if (!/^[A-Z][A-Z0-9_]+$/.test(question.subjectCode)) {
+      throw new Error(`${index + 1}번째 문제의 subjectCode가 올바르지 않습니다.`);
+    }
+    const expectedId = canonicalQuestionId(question);
+    if (expectedId && question.id !== expectedId) {
+      throw new Error(`${index + 1}번째 문제 ID는 ${expectedId}여야 합니다.`);
     }
     if (question.image && !/^data:image\/(png|jpeg|webp|svg\+xml);base64,/i.test(question.image)) {
       throw new Error(`${index + 1}번째 문제 이미지는 문제은행에 포함된 base64 이미지여야 합니다.`);
@@ -144,6 +151,14 @@ function validateQuestionBank(value) {
     ids.add(question.id);
   });
   if (!verifiedQuestions(value).length) throw new Error("검증 완료(status: verified) 문제가 없습니다.");
+}
+
+function canonicalQuestionId(question) {
+  const { examYear, examRound, examFormat, originalQuestionNumber } = question.source || {};
+  if (!Number.isInteger(examYear) || !Number.isInteger(examRound) || !Number.isInteger(originalQuestionNumber) || !["PBT", "CBT"].includes(examFormat)) return null;
+  const round = String(examRound).padStart(2, "0");
+  const number = String(originalQuestionNumber).padStart(3, "0");
+  return `electrician.${examFormat.toLowerCase()}.${examYear}.r${round}.q${number}`;
 }
 
 function verifiedQuestions(value = questionBank) {
