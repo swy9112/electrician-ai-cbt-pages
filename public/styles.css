@@ -65,6 +65,8 @@ button, .file-button { display: inline-flex; align-items: center; justify-conten
 .mode-stat i { width: 1px; height: 25px; margin: 0 8px; background: var(--line); }
 .mode-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 14px; }
 .mode-actions > * { width: 100%; text-align: center; }
+.json-help { margin: 18px 4px 0; padding: 13px 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.72); color: var(--muted); font-size: 13px; line-height: 1.6; }
+.json-help strong { color: #263246; }
 .launch-message { margin: 14px 4px 0; }
 .message { min-height: 20px; color: var(--danger) !important; font-size: 13px !important; }
 

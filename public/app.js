@@ -192,7 +192,7 @@ function initializeState() {
 }
 
 function defaultPageSize() {
-  return window.matchMedia("(max-width: 820px)").matches ? 1 : 2;
+  return 1;
 }
 
 function startExamUi() {

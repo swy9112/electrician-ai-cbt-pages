@@ -65,7 +65,7 @@
           <div class="mode-actions">
             <button id="start-quick-demo" type="button">더미로 바로 시작</button>
             <label class="file-button secondary-button">
-              문제 JSON 불러오기
+              문제 파일 선택
               <input id="quick-file" type="file" accept="application/json,.json">
             </label>
           </div>
@@ -87,12 +87,13 @@
           <div class="mode-actions">
             <button id="start-exam-demo" type="button">실전 데모 시작</button>
             <label class="file-button secondary-button">
-              기출 회차 JSON 불러오기
+              기출 회차 파일 선택
               <input id="exam-file" type="file" accept="application/json,.json">
             </label>
           </div>
         </article>
       </div>
+      <p class="json-help"><strong>문제 파일이란?</strong> Codex가 PDF나 문제은행을 시험 화면용 JSON으로 변환한 파일입니다. PDF를 직접 여는 기능은 아닙니다.</p>
       <p id="loader-message" class="message launch-message" role="status"></p>
     </section>
 
@@ -136,8 +137,8 @@
         <button id="next" type="button" class="icon-button" aria-label="다음 페이지">›</button>
         <label class="page-size-control">
           <select id="page-size" aria-label="한 페이지 문제 수">
-            <option value="1">1 / page</option>
-            <option value="2" selected>2 / page</option>
+            <option value="1" selected>1문제씩</option>
+            <option value="2">2문제씩</option>
           </select>
         </label>
       </div>
