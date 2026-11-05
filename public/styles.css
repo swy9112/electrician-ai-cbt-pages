@@ -44,9 +44,15 @@ h1 { margin: 0; font-size: 19px; }
 .launch-heading > p { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.65; }
 .mode-chip { display: inline-flex; align-items: center; min-height: 25px; padding: 4px 9px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); font-size: 11px; font-weight: 900; letter-spacing: .04em; }
 button, .file-button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; border: 0; border-radius: 11px; padding: 0 18px; background: var(--primary); color: #fff; font-weight: 800; }
+button:disabled, select:disabled { cursor: not-allowed; opacity: .48; }
 .file-button { cursor: pointer; }
 .file-button input { display: none; }
 .secondary-button { background: #fff !important; color: #263246 !important; border: 1px solid var(--line) !important; }
+.bank-panel { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 18px; padding: 18px 20px; border: 1px solid #cfd9ff; border-radius: 18px; background: linear-gradient(100deg, #f4f6ff, #fff); }
+.bank-copy { display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: 5px 12px; min-width: 0; }
+.bank-copy > strong { font-size: 17px; }
+.bank-copy > span:last-child { grid-column: 1 / -1; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.bank-actions { display: flex; flex: 0 0 auto; gap: 8px; }
 .mode-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .study-mode-card { display: flex; flex-direction: column; min-width: 0; min-height: 430px; padding: clamp(24px, 3vw, 36px); border: 1px solid var(--line); border-radius: 26px; background: #fff; box-shadow: 0 20px 60px rgba(32, 48, 76, .07); }
 .study-mode-card.quick-mode-card { border-color: #cfd9ff; background: linear-gradient(145deg, #fff 58%, #f3f6ff); }
@@ -57,12 +63,13 @@ button, .file-button { display: inline-flex; align-items: center; justify-conten
 .study-mode-card > p { margin: 0; color: var(--muted); line-height: 1.65; }
 .study-mode-card ul { display: grid; gap: 8px; margin: 22px 0; padding: 0; list-style: none; color: #48566c; font-size: 14px; }
 .study-mode-card li::before { content: "✓"; margin-right: 8px; color: var(--primary); font-weight: 900; }
-.quick-count-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.8); color: #48566c; font-size: 13px; font-weight: 800; }
-.quick-count-control select { height: 36px; border: 1px solid var(--line); border-radius: 9px; padding: 0 28px 0 10px; background: #fff; color: #263246; font-weight: 800; }
 .mode-stat { display: flex; align-items: baseline; gap: 7px; margin-top: auto; padding: 11px 2px; }
 .mode-stat strong { font-size: 28px; letter-spacing: -.04em; }
 .mode-stat span { color: var(--muted); font-size: 13px; font-weight: 800; }
 .mode-stat i { width: 1px; height: 25px; margin: 0 8px; background: var(--line); }
+.filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: auto; }
+.filter-grid label { display: grid; gap: 7px; color: #48566c; font-size: 12px; font-weight: 800; }
+.filter-grid select { width: 100%; height: 42px; border: 1px solid var(--line); border-radius: 10px; padding: 0 30px 0 11px; background: #fff; color: #263246; font-weight: 800; }
 .mode-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 14px; }
 .mode-actions > * { width: 100%; text-align: center; }
 .json-help { margin: 18px 4px 0; padding: 13px 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.72); color: var(--muted); font-size: 13px; line-height: 1.6; }
@@ -152,6 +159,8 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   .launch-panel { padding: 38px 0 64px; }
   .launch-heading h2 { font-size: clamp(32px, 8vw, 48px); }
   .mode-grid { grid-template-columns: 1fr; }
+  .bank-panel { align-items: stretch; flex-direction: column; }
+  .bank-actions > * { flex: 1; }
   .study-mode-card { min-height: 390px; }
   .exam-workspace { display: block; }
   .exam-info-bar { padding-inline: 14px; }
@@ -177,6 +186,8 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   .launch-heading h2 { font-size: 34px; }
   .study-mode-card { padding: 22px 18px; border-radius: 20px; }
   .mode-actions { grid-template-columns: 1fr; }
+  .bank-actions { display: grid; }
+  .filter-grid { grid-template-columns: 1fr; }
   .question-stem { line-height: 1.65; }
   .completion-actions { display: grid; }
 }

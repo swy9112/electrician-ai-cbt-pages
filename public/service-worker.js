@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "electrician-cbt-prototype-v3";
+const CACHE_NAME = "electrician-cbt-prototype-v4";
 const ASSETS = ["./", "./index.html", "./styles.css", "./demo-data.js", "./app.js", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (event) => {

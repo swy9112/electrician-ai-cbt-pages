@@ -2,14 +2,24 @@
 
 const STORAGE_PREFIX = "electrician-cbt:state:v2";
 const AUTO_SAVE_INTERVAL_MS = 60_000;
+const BANK_DB_NAME = "electrician-cbt";
+const BANK_STORE_NAME = "questionBanks";
+const ACTIVE_BANK_KEY = "active";
+const SUBJECT_ORDER = ["전기자기학", "전력공학", "전기기기", "회로이론 및 제어공학", "전기설비기술기준"];
 
 const elements = {
   loader: document.querySelector("#loader"),
-  file: document.querySelector("#exam-file"),
-  quickFile: document.querySelector("#quick-file"),
+  bankFile: document.querySelector("#bank-file"),
+  clearBank: document.querySelector("#clear-bank"),
+  bankStatus: document.querySelector("#bank-status"),
   startQuickDemo: document.querySelector("#start-quick-demo"),
+  startQuickBank: document.querySelector("#start-quick-bank"),
   startExamDemo: document.querySelector("#start-exam-demo"),
+  startBankExam: document.querySelector("#start-bank-exam"),
+  quickSubject: document.querySelector("#quick-subject"),
   quickCount: document.querySelector("#quick-count"),
+  examYear: document.querySelector("#exam-year"),
+  examRound: document.querySelector("#exam-round"),
   loaderMessage: document.querySelector("#loader-message"),
   exam: document.querySelector("#exam"),
   footer: document.querySelector("#exam-footer"),
@@ -51,11 +61,15 @@ let timerHandle = null;
 let autoSaveHandle = null;
 let finalResult = null;
 let activeStudyMode = "exam";
+let questionBank = null;
 
 elements.startQuickDemo.addEventListener("click", () => loadExam(createDemoExam(), "quick"));
 elements.startExamDemo.addEventListener("click", () => loadExam(createDemoExam(), "exam"));
-elements.quickFile.addEventListener("change", (event) => loadExamFile(event, "quick"));
-elements.file.addEventListener("change", (event) => loadExamFile(event, "exam"));
+elements.startQuickBank.addEventListener("click", startQuickFromBank);
+elements.startBankExam.addEventListener("click", startExamFromBank);
+elements.bankFile.addEventListener("change", registerQuestionBank);
+elements.clearBank.addEventListener("click", clearQuestionBank);
+elements.examYear.addEventListener("change", refreshRoundOptions);
 elements.previous.addEventListener("click", () => movePage(-1));
 elements.next.addEventListener("click", () => movePage(1));
 elements.pageSize.addEventListener("change", changePageSize);
@@ -73,21 +87,168 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
   window.addEventListener("load", () => navigator.serviceWorker.register("./service-worker.js"));
 }
 
-async function loadExamFile(event, studyMode) {
+initializeQuestionBank();
+
+async function initializeQuestionBank() {
+  try {
+    const saved = await readQuestionBank();
+    if (saved) activateQuestionBank(saved);
+    else refreshBankControls();
+  } catch (error) {
+    elements.bankStatus.textContent = `문제은행 저장소를 열 수 없습니다: ${error.message}`;
+  }
+}
+
+async function registerQuestionBank(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    loadExam(JSON.parse(await file.text()), studyMode);
+    const value = JSON.parse(await file.text());
+    validateQuestionBank(value);
+    await saveQuestionBank(value);
+    activateQuestionBank(value);
+    elements.loaderMessage.textContent = "문제은행을 이 기기에 등록했습니다.";
   } catch (error) {
-    elements.loaderMessage.textContent = `불러오기 실패: ${error.message}`;
+    elements.loaderMessage.textContent = `문제은행 등록 실패: ${error.message}`;
+  } finally {
     event.target.value = "";
   }
 }
 
+function activateQuestionBank(value) {
+  questionBank = value;
+  refreshBankControls();
+}
+
+function validateQuestionBank(value) {
+  if (!value || typeof value !== "object" || value.schemaVersion !== 2) throw new Error("지원하는 문제은행 형식(v2)이 아닙니다.");
+  if (!Array.isArray(value.questions) || value.questions.length === 0) throw new Error("문제가 없습니다.");
+  const ids = new Set();
+  value.questions.forEach((question, index) => {
+    if (!question.id || !question.subject || !question.stem || !question.source || !Array.isArray(question.choices) || question.choices.length < 2) {
+      throw new Error(`${index + 1}번째 문제 구조가 올바르지 않습니다.`);
+    }
+    if (question.image && !/^data:image\/(png|jpeg|webp|svg\+xml);base64,/i.test(question.image)) {
+      throw new Error(`${index + 1}번째 문제 이미지는 문제은행에 포함된 base64 이미지여야 합니다.`);
+    }
+    if (ids.has(question.id)) throw new Error(`중복 문제 ID: ${question.id}`);
+    ids.add(question.id);
+  });
+  if (!verifiedQuestions(value).length) throw new Error("검증 완료(status: verified) 문제가 없습니다.");
+}
+
+function verifiedQuestions(value = questionBank) {
+  return value?.questions.filter((question) => question.status === "verified") || [];
+}
+
+function refreshBankControls() {
+  const questions = verifiedQuestions();
+  const subjects = [...new Set(questions.map((question) => question.subject))]
+    .sort((a, b) => subjectRank(a) - subjectRank(b) || a.localeCompare(b, "ko"));
+  const years = [...new Set(questions.map((question) => question.source?.examYear).filter(Number.isInteger))].sort((a, b) => b - a);
+
+  elements.quickSubject.replaceChildren();
+  elements.examYear.replaceChildren();
+  if (!questions.length) {
+    elements.quickSubject.append(new Option("문제은행 등록 필요", ""));
+    elements.examYear.append(new Option("문제은행 등록 필요", ""));
+    elements.examRound.replaceChildren(new Option("연도 선택 필요", ""));
+    for (const control of [elements.quickSubject, elements.examYear, elements.examRound, elements.startQuickBank, elements.startBankExam, elements.clearBank]) control.disabled = true;
+    elements.bankStatus.textContent = "등록된 문제은행이 없습니다. 더미 데모는 바로 사용할 수 있습니다.";
+    return;
+  }
+
+  elements.quickSubject.append(new Option("전과목", "all"), ...subjects.map((subject) => new Option(subject, subject)));
+  elements.examYear.append(...years.map((year) => new Option(`${year}년`, String(year))));
+  elements.quickSubject.disabled = false;
+  elements.examYear.disabled = years.length === 0;
+  elements.startQuickBank.disabled = false;
+  elements.clearBank.disabled = false;
+  refreshRoundOptions();
+
+  const rounds = new Set(questions.filter((question) => Number.isInteger(question.source?.examYear) && Number.isInteger(question.source?.examRound)).map((question) => `${question.source.examYear}-${question.source.examRound}`));
+  elements.bankStatus.textContent = `검증 ${questions.length.toLocaleString("ko-KR")}문제 · ${years.length}개 연도 · ${rounds.size}개 회차가 이 기기에 저장되어 있습니다.`;
+}
+
+function subjectRank(subject) {
+  const index = SUBJECT_ORDER.indexOf(subject);
+  return index === -1 ? SUBJECT_ORDER.length : index;
+}
+
+function refreshRoundOptions() {
+  const year = Number(elements.examYear.value);
+  const rounds = [...new Set(verifiedQuestions().filter((question) => question.source?.examYear === year && Number.isInteger(question.source?.examRound)).map((question) => question.source.examRound))].sort((a, b) => a - b);
+  elements.examRound.replaceChildren(...rounds.map((round) => new Option(`${round}회`, String(round))));
+  elements.examRound.disabled = rounds.length === 0;
+  elements.startBankExam.disabled = rounds.length === 0;
+}
+
+function startQuickFromBank() {
+  try {
+    const selectedSubject = elements.quickSubject.value;
+    const candidates = verifiedQuestions().filter((question) => selectedSubject === "all" || question.subject === selectedSubject);
+    if (!candidates.length) throw new Error("선택한 과목에 검증 완료 문제가 없습니다.");
+    const label = selectedSubject === "all" ? "전과목" : selectedSubject;
+    loadExam(buildExamPackage(candidates, `question-bank-${selectedSubject}`, `${label} 틈새학습`, "custom"), "quick");
+  } catch (error) {
+    elements.loaderMessage.textContent = `틈새학습 시작 실패: ${error.message}`;
+  }
+}
+
+function startExamFromBank() {
+  try {
+    const year = Number(elements.examYear.value);
+    const round = Number(elements.examRound.value);
+    const questions = verifiedQuestions()
+      .filter((question) => question.source?.examYear === year && question.source?.examRound === round)
+      .sort((a, b) => a.source.originalQuestionNumber - b.source.originalQuestionNumber);
+    if (questions.length !== 100) throw new Error(`${year}년 ${round}회는 검증 완료 문제가 ${questions.length}개입니다. 실전 모드는 100개가 필요합니다.`);
+    const originalNumbers = questions.map((question) => question.source.originalQuestionNumber);
+    if (originalNumbers.some((number) => !Number.isInteger(number)) || new Set(originalNumbers).size !== 100 || Math.min(...originalNumbers) !== 1 || Math.max(...originalNumbers) !== 100) {
+      throw new Error(`${year}년 ${round}회의 원문 문제 번호가 1~100으로 완전하지 않습니다.`);
+    }
+    loadExam(buildExamPackage(questions, `electrician-${year}-${round}`, `${year}년 ${round}회 전기기사`, "real"), "exam");
+  } catch (error) {
+    elements.loaderMessage.textContent = `실전 모의고사 시작 실패: ${error.message}`;
+  }
+}
+
+function buildExamPackage(questions, examId, title, mode) {
+  return {
+    schemaVersion: 1,
+    examId,
+    attemptId: examId,
+    title,
+    mode,
+    timeLimitMinutes: 150,
+    questionCount: questions.length,
+    questions: questions.map(toExamQuestion)
+  };
+}
+
+function toExamQuestion(question) {
+  return {
+    id: question.id,
+    subject: question.subject,
+    stem: question.stem,
+    image: question.image || null,
+    imageAlt: question.imageAlt || null,
+    choices: question.choices.map((choice) => ({ id: choice.id, text: choice.text }))
+  };
+}
+
+async function clearQuestionBank() {
+  if (!window.confirm("이 기기에 저장된 문제은행을 삭제하시겠습니까? 시험 기록과 결과 파일은 삭제되지 않습니다.")) return;
+  await deleteQuestionBank();
+  questionBank = null;
+  refreshBankControls();
+  elements.loaderMessage.textContent = "이 기기에서 문제은행을 삭제했습니다.";
+}
+
 function loadExam(value, studyMode) {
-  validateExamPackage(value);
   activeStudyMode = studyMode;
   examPackage = prepareExamForStudyMode(value, studyMode);
+  validateExamPackage(examPackage, studyMode);
   initializeState();
   startExamUi();
 }
@@ -134,7 +295,7 @@ function dailyQuestionScore(examId, dateKey, questionId) {
   return hash >>> 0;
 }
 
-function validateExamPackage(value) {
+function validateExamPackage(value, studyMode) {
   if (!value || typeof value !== "object") throw new Error("JSON 객체가 아닙니다.");
   for (const field of ["examId", "attemptId", "title", "mode", "timeLimitMinutes", "questions"]) {
     if (value[field] === undefined || value[field] === null) throw new Error(`${field} 항목이 없습니다.`);
@@ -142,7 +303,7 @@ function validateExamPackage(value) {
   if (!["real", "custom", "development"].includes(value.mode)) throw new Error("지원하지 않는 시험 모드입니다.");
   if (!Array.isArray(value.questions) || value.questions.length === 0) throw new Error("문제가 없습니다.");
   if (value.questionCount !== value.questions.length) throw new Error("questionCount와 실제 문제 수가 다릅니다.");
-  if (value.mode !== "development" && value.questions.length !== 100) throw new Error("실전·맞춤 회차는 정확히 100문제여야 합니다.");
+  if (studyMode !== "quick" && value.mode !== "development" && value.questions.length !== 100) throw new Error("실전 회차는 정확히 100문제여야 합니다.");
 
   const ids = new Set();
   for (const [index, question] of value.questions.entries()) {
@@ -157,6 +318,55 @@ function validateExamPackage(value) {
     }
     ids.add(question.id);
   }
+}
+
+function openBankDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(BANK_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(BANK_STORE_NAME)) database.createObjectStore(BANK_STORE_NAME);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("IndexedDB를 열 수 없습니다."));
+  });
+}
+
+async function readQuestionBank() {
+  const database = await openBankDatabase();
+  try {
+    return await runBankRequest(database, "readonly", (store) => store.get(ACTIVE_BANK_KEY));
+  } finally {
+    database.close();
+  }
+}
+
+async function saveQuestionBank(value) {
+  const database = await openBankDatabase();
+  try {
+    await runBankRequest(database, "readwrite", (store) => store.put(value, ACTIVE_BANK_KEY));
+  } finally {
+    database.close();
+  }
+}
+
+async function deleteQuestionBank() {
+  const database = await openBankDatabase();
+  try {
+    await runBankRequest(database, "readwrite", (store) => store.delete(ACTIVE_BANK_KEY));
+  } finally {
+    database.close();
+  }
+}
+
+function runBankRequest(database, mode, operation) {
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(BANK_STORE_NAME, mode);
+    const request = operation(transaction.objectStore(BANK_STORE_NAME));
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("문제은행 저장 작업에 실패했습니다."));
+    transaction.onerror = () => reject(transaction.error || new Error("문제은행 저장 작업에 실패했습니다."));
+  });
 }
 
 function initializeState() {
