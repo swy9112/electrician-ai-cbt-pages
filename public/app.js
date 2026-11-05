@@ -7,6 +7,7 @@ const BANK_STORE_NAME = "questionBanks";
 const ACTIVE_BANK_KEY = "active";
 const EXAM_PROGRESS_KEY = "electrician-cbt:exam-progress:v1";
 const WRONG_BOOK_KEY = "electrician-cbt:wrong-book:v1";
+const QUESTION_STATS_KEY = "electrician-cbt:question-statistics:v1";
 const SUBJECT_ORDER = ["전기자기학", "전력공학", "전기기기", "회로이론 및 제어공학", "전기설비기술기준"];
 
 const elements = {
@@ -19,6 +20,7 @@ const elements = {
   startExamDemo: document.querySelector("#start-exam-demo"),
   startBankExam: document.querySelector("#start-bank-exam"),
   startWrongReview: document.querySelector("#start-wrong-review"),
+  exportStatistics: document.querySelector("#export-statistics"),
   quickSubject: document.querySelector("#quick-subject"),
   quickCount: document.querySelector("#quick-count"),
   wrongSubject: document.querySelector("#wrong-subject"),
@@ -75,6 +77,7 @@ elements.startExamDemo.addEventListener("click", () => loadExam(createDemoExam()
 elements.startQuickBank.addEventListener("click", startQuickFromBank);
 elements.startBankExam.addEventListener("click", startExamFromBank);
 elements.startWrongReview.addEventListener("click", startWrongReview);
+elements.exportStatistics.addEventListener("click", exportQuestionStatistics);
 elements.bankFile.addEventListener("change", registerQuestionBank);
 elements.clearBank.addEventListener("click", clearQuestionBank);
 elements.examYear.addEventListener("change", refreshRoundOptions);
@@ -270,19 +273,22 @@ function startExamFromBank() {
 
 function refreshWeaknessControls() {
   const wrongBook = readStoredObject(WRONG_BOOK_KEY);
+  const statistics = readStoredObject(QUESTION_STATS_KEY);
   const bankQuestions = new Map(verifiedQuestions().map((question) => [question.id, question]));
   const wrongQuestions = Object.values(wrongBook).map((record) => bankQuestions.get(record.questionId)).filter(Boolean);
   const subjects = [...new Set(wrongQuestions.map((question) => question.subject))]
     .sort((a, b) => subjectRank(a) - subjectRank(b) || a.localeCompare(b, "ko"));
 
   elements.wrongSubject.replaceChildren();
+  elements.exportStatistics.disabled = Object.keys(statistics).length === 0;
   if (!wrongQuestions.length) {
     elements.wrongSubject.append(new Option(questionBank ? "오답 없음" : "문제은행 등록 필요", ""));
     elements.wrongSubject.disabled = true;
     elements.wrongCount.disabled = true;
     elements.startWrongReview.disabled = true;
+    const totalWrong = Object.values(statistics).reduce((sum, record) => sum + (record.wrongCount || 0), 0);
     elements.weaknessStatus.textContent = questionBank
-      ? "아직 저장된 오답이 없습니다. 실전 회차를 완료하면 자동으로 모입니다."
+      ? totalWrong ? `현재 보완할 오답은 없지만 누적 오답 ${totalWrong}회 기록은 통계에 보존되어 있습니다.` : "아직 저장된 오답이 없습니다. 실전 회차를 완료하면 자동으로 모입니다."
       : "문제은행을 등록한 뒤 실전 회차를 완료하면 오답이 자동으로 모입니다.";
     return;
   }
@@ -291,7 +297,19 @@ function refreshWeaknessControls() {
   elements.wrongSubject.disabled = false;
   elements.wrongCount.disabled = false;
   elements.startWrongReview.disabled = false;
-  elements.weaknessStatus.textContent = `현재 보완할 오답 ${wrongQuestions.length}문제 · 맞힌 문제는 보완 목록에서 빠집니다.`;
+  const totalWrong = Object.values(statistics).reduce((sum, record) => sum + (record.wrongCount || 0), 0);
+  elements.weaknessStatus.textContent = `현재 보완할 오답 ${wrongQuestions.length}문제 · 누적 오답 ${totalWrong}회 · 맞혀도 통계 기록은 보존됩니다.`;
+}
+
+function exportQuestionStatistics() {
+  const statistics = Object.values(readStoredObject(QUESTION_STATS_KEY));
+  if (!statistics.length) return;
+  downloadJson({
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    deviceScope: "browser_local",
+    statistics
+  }, `question-statistics-${koreaDateKey()}.json`);
 }
 
 function startWrongReview() {
@@ -831,6 +849,8 @@ function updateLearningProgress(grading) {
   if (!grading) return;
   const now = new Date().toISOString();
   const wrongBook = readStoredObject(WRONG_BOOK_KEY);
+  const statistics = readStoredObject(QUESTION_STATS_KEY);
+  const bankQuestions = new Map(verifiedQuestions().map((question) => [question.id, question]));
 
   if (activeStudyMode === "exam" && examPackage.mode === "real") {
     const progress = readStoredObject(EXAM_PROGRESS_KEY);
@@ -844,6 +864,29 @@ function updateLearningProgress(grading) {
   }
 
   grading.items.forEach((item) => {
+    const question = bankQuestions.get(item.questionId);
+    const previousStats = statistics[item.questionId] || {};
+    const answered = item.selectedChoiceId !== null;
+    statistics[item.questionId] = {
+      questionId: item.questionId,
+      subjectCode: question?.subjectCode || previousStats.subjectCode || "UNKNOWN",
+      subject: question?.subject || previousStats.subject || "과목 미상",
+      source: question?.source ? {
+        examYear: question.source.examYear ?? null,
+        examRound: question.source.examRound ?? null,
+        examFormat: question.source.examFormat ?? null,
+        originalQuestionNumber: question.source.originalQuestionNumber ?? null
+      } : previousStats.source || null,
+      attemptCount: (previousStats.attemptCount || 0) + 1,
+      correctCount: (previousStats.correctCount || 0) + (item.isCorrect === true ? 1 : 0),
+      wrongCount: (previousStats.wrongCount || 0) + (item.isCorrect === false ? 1 : 0),
+      unansweredCount: (previousStats.unansweredCount || 0) + (!answered ? 1 : 0),
+      reviewAttemptCount: (previousStats.reviewAttemptCount || 0) + (activeStudyMode === "wrong" ? 1 : 0),
+      reviewCorrectCount: (previousStats.reviewCorrectCount || 0) + (activeStudyMode === "wrong" && item.isCorrect === true ? 1 : 0),
+      consecutiveCorrect: item.isCorrect === true ? (previousStats.consecutiveCorrect || 0) + 1 : 0,
+      lastAttemptAt: now,
+      lastWrongAt: item.isCorrect === false ? now : previousStats.lastWrongAt || null
+    };
     if (item.isCorrect === false) {
       const previous = wrongBook[item.questionId];
       wrongBook[item.questionId] = {
@@ -857,6 +900,7 @@ function updateLearningProgress(grading) {
     }
   });
   localStorage.setItem(WRONG_BOOK_KEY, JSON.stringify(wrongBook));
+  localStorage.setItem(QUESTION_STATS_KEY, JSON.stringify(statistics));
   refreshWeaknessControls();
   refreshRoundOptions();
 }
