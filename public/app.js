@@ -6,12 +6,16 @@ const AUTO_SAVE_INTERVAL_MS = 60_000;
 const elements = {
   loader: document.querySelector("#loader"),
   file: document.querySelector("#exam-file"),
-  startDemo: document.querySelector("#start-demo"),
+  quickFile: document.querySelector("#quick-file"),
+  startQuickDemo: document.querySelector("#start-quick-demo"),
+  startExamDemo: document.querySelector("#start-exam-demo"),
+  quickCount: document.querySelector("#quick-count"),
   loaderMessage: document.querySelector("#loader-message"),
   exam: document.querySelector("#exam"),
   footer: document.querySelector("#exam-footer"),
   completed: document.querySelector("#completed"),
   timer: document.querySelector("#timer"),
+  timerLabel: document.querySelector("#timer-label"),
   timerPanel: document.querySelector(".timer-panel"),
   title: document.querySelector("#exam-title"),
   mode: document.querySelector("#exam-mode"),
@@ -34,6 +38,8 @@ const elements = {
   fontSize: document.querySelector("#font-size"),
   fullscreen: document.querySelector("#fullscreen"),
   completionSummary: document.querySelector("#completion-summary"),
+  completionEyebrow: document.querySelector("#completion-eyebrow"),
+  completionTitle: document.querySelector("#completion-title"),
   shareResult: document.querySelector("#share-result"),
   downloadResult: document.querySelector("#download-result"),
   shareMessage: document.querySelector("#share-message")
@@ -44,9 +50,12 @@ let state = null;
 let timerHandle = null;
 let autoSaveHandle = null;
 let finalResult = null;
+let activeStudyMode = "exam";
 
-elements.startDemo.addEventListener("click", () => loadExam(createDemoExam()));
-elements.file.addEventListener("change", loadExamFile);
+elements.startQuickDemo.addEventListener("click", () => loadExam(createDemoExam(), "quick"));
+elements.startExamDemo.addEventListener("click", () => loadExam(createDemoExam(), "exam"));
+elements.quickFile.addEventListener("change", (event) => loadExamFile(event, "quick"));
+elements.file.addEventListener("change", (event) => loadExamFile(event, "exam"));
 elements.previous.addEventListener("click", () => movePage(-1));
 elements.next.addEventListener("click", () => movePage(1));
 elements.pageSize.addEventListener("change", changePageSize);
@@ -64,22 +73,65 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
   window.addEventListener("load", () => navigator.serviceWorker.register("./service-worker.js"));
 }
 
-async function loadExamFile(event) {
+async function loadExamFile(event, studyMode) {
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    loadExam(JSON.parse(await file.text()));
+    loadExam(JSON.parse(await file.text()), studyMode);
   } catch (error) {
     elements.loaderMessage.textContent = `불러오기 실패: ${error.message}`;
     event.target.value = "";
   }
 }
 
-function loadExam(value) {
+function loadExam(value, studyMode) {
   validateExamPackage(value);
-  examPackage = value;
+  activeStudyMode = studyMode;
+  examPackage = prepareExamForStudyMode(value, studyMode);
   initializeState();
   startExamUi();
+}
+
+function prepareExamForStudyMode(source, studyMode) {
+  if (studyMode === "exam") {
+    if (source.questions.length !== 100) throw new Error("실전 모드는 정확히 100문제인 회차만 사용할 수 있습니다.");
+    return { ...source, timeLimitMinutes: 150, questionCount: 100 };
+  }
+
+  const requestedCount = Number(elements.quickCount.value);
+  const dateKey = koreaDateKey();
+  const questions = [...source.questions]
+    .sort((a, b) => dailyQuestionScore(source.examId, dateKey, a.id) - dailyQuestionScore(source.examId, dateKey, b.id))
+    .slice(0, Math.min(requestedCount, source.questions.length));
+
+  return {
+    ...source,
+    attemptId: `${source.attemptId}-quick-${dateKey}-${questions.length}`,
+    title: `틈새학습 ${questions.length}문제 · ${source.title}`,
+    questionCount: questions.length,
+    questions
+  };
+}
+
+function koreaDateKey() {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function dailyQuestionScore(examId, dateKey, questionId) {
+  const text = `${examId}:${dateKey}:${questionId}`;
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 function validateExamPackage(value) {
@@ -124,9 +176,10 @@ function initializeState() {
     examId: examPackage.examId,
     attemptId: examPackage.attemptId,
     mode: examPackage.mode,
+    studyMode: activeStudyMode,
     status: "in_progress",
     startedAt: new Date(now).toISOString(),
-    deadlineAt: new Date(now + examPackage.timeLimitMinutes * 60_000).toISOString(),
+    deadlineAt: activeStudyMode === "exam" ? new Date(now + 150 * 60_000).toISOString() : null,
     submittedAt: null,
     currentIndex: 0,
     pageSize: defaultPageSize(),
@@ -143,12 +196,16 @@ function defaultPageSize() {
 }
 
 function startExamUi() {
+  window.clearInterval(timerHandle);
+  window.clearInterval(autoSaveHandle);
   elements.loader.classList.add("hidden");
   elements.completed.classList.add("hidden");
   elements.exam.classList.remove("hidden");
   elements.footer.classList.remove("hidden");
   elements.title.textContent = examPackage.title;
-  elements.mode.textContent = modeLabel(examPackage.mode);
+  elements.mode.textContent = modeLabel();
+  elements.timerLabel.textContent = activeStudyMode === "quick" ? "학습 시간" : "남은 시간";
+  elements.finish.textContent = activeStudyMode === "quick" ? "학습 종료" : "시험 완료";
   elements.pageSize.value = String(state.pageSize);
   buildAnswerSheet();
   renderPage();
@@ -157,8 +214,9 @@ function startExamUi() {
   autoSaveHandle = window.setInterval(saveState, AUTO_SAVE_INTERVAL_MS);
 }
 
-function modeLabel(mode) {
-  return { real: "실전", custom: "맞춤", development: "더미 데모" }[mode] || mode;
+function modeLabel() {
+  if (activeStudyMode === "quick") return `틈새학습 · ${examPackage.questions.length}문제`;
+  return examPackage.mode === "development" ? "실전 데모" : "실전 모의고사";
 }
 
 function renderPage() {
@@ -362,18 +420,28 @@ function changePageSize() {
 
 function updateTimer() {
   if (!state || state.status !== "in_progress") return;
+  if (state.studyMode === "quick") {
+    const elapsed = Math.max(0, Date.now() - new Date(state.startedAt).getTime());
+    elements.timer.textContent = formatDuration(elapsed);
+    elements.timerPanel.classList.remove("warning");
+    return;
+  }
   const remaining = new Date(state.deadlineAt).getTime() - Date.now();
   if (remaining <= 0) {
     elements.timer.textContent = "00:00:00";
     finishExam("timed_out", true);
     return;
   }
-  const totalSeconds = Math.floor(remaining / 1000);
+  elements.timer.textContent = formatDuration(remaining);
+  elements.timerPanel.classList.toggle("warning", remaining <= 10 * 60_000);
+}
+
+function formatDuration(durationMs) {
+  const totalSeconds = Math.floor(durationMs / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  elements.timer.textContent = [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
-  elements.timerPanel.classList.toggle("warning", remaining <= 10 * 60_000);
+  return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
 }
 
 function saveState() {
@@ -393,7 +461,7 @@ function readSavedState(key) {
 }
 
 function storageKey() {
-  return `${STORAGE_PREFIX}:${examPackage.examId}:${examPackage.attemptId}`;
+  return `${STORAGE_PREFIX}:${activeStudyMode}:${examPackage.examId}:${examPackage.attemptId}`;
 }
 
 function downloadDraft() {
@@ -405,7 +473,8 @@ function finishExam(reason, skipConfirmation = false) {
   if (!state || state.status !== "in_progress") return;
   const unanswered = examPackage.questions.length - answeredCount();
   if (!skipConfirmation) {
-    const confirmed = window.confirm(`미응답 ${unanswered}문제입니다. 시험을 완료하면 답안을 수정할 수 없습니다. 제출하시겠습니까?`);
+    const action = activeStudyMode === "quick" ? "학습을 종료" : "시험을 완료";
+    const confirmed = window.confirm(`미응답 ${unanswered}문제입니다. ${action}하면 답안을 수정할 수 없습니다. 계속하시겠습니까?`);
     if (!confirmed) return;
   }
 
@@ -418,6 +487,8 @@ function finishExam(reason, skipConfirmation = false) {
   elements.exam.classList.add("hidden");
   elements.footer.classList.add("hidden");
   elements.completed.classList.remove("hidden");
+  elements.completionEyebrow.textContent = activeStudyMode === "quick" ? "학습 완료" : "제출 완료";
+  elements.completionTitle.textContent = activeStudyMode === "quick" ? "학습 기록 파일이 준비됐습니다." : "시험 결과 파일이 준비됐습니다.";
   elements.completionSummary.textContent = `${examPackage.title} · 답변 ${examPackage.questions.length - unanswered}문제 · 미응답 ${unanswered}문제`;
   if (!skipConfirmation) downloadJson(finalResult, resultFilename());
 }
@@ -430,6 +501,7 @@ function buildResult() {
     attemptId: state.attemptId,
     examTitle: examPackage.title,
     mode: state.mode,
+    studyMode: state.studyMode,
     status: state.status,
     startedAt: state.startedAt,
     deadlineAt: state.deadlineAt,
@@ -453,7 +525,8 @@ async function shareResult() {
     return;
   }
   try {
-    await navigator.share({ files: [file], title: "전기기사 CBT 시험 결과", text: "Codex 분석용 시험 결과 JSON" });
+    const resultKind = activeStudyMode === "quick" ? "학습 기록" : "시험 결과";
+    await navigator.share({ files: [file], title: `전기기사 CBT ${resultKind}`, text: `Codex 분석용 ${resultKind} JSON` });
     elements.shareMessage.textContent = "공유가 완료되었습니다.";
   } catch (error) {
     if (error.name !== "AbortError") elements.shareMessage.textContent = `공유 실패: ${error.message}`;
@@ -465,7 +538,8 @@ function createResultFile() {
 }
 
 function resultFilename() {
-  return `exam-result-${state.sessionId}.json`;
+  const prefix = activeStudyMode === "quick" ? "study-result" : "exam-result";
+  return `${prefix}-${state.sessionId}.json`;
 }
 
 function downloadJson(value, filename) {

@@ -1,7 +1,7 @@
 {
   "name": "전기기사 AI CBT",
   "short_name": "전기기사 CBT",
-  "description": "개인 학습용 전기기사 CBT 프로토타입",
+  "description": "틈새학습과 실전 모의고사를 지원하는 개인용 전기기사 CBT",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

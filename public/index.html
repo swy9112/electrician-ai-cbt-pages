@@ -28,32 +28,72 @@
         <button id="fullscreen" type="button" class="icon-button" aria-label="전체 화면">⛶</button>
         <button id="answer-sheet-toggle" type="button" class="icon-button answer-toggle" aria-label="답안지 열기">답안</button>
         <div class="timer-panel" aria-live="polite">
-          <span>남은 시간</span>
+          <span id="timer-label">남은 시간</span>
           <strong id="timer">--:--:--</strong>
         </div>
       </div>
     </header>
 
     <section id="loader" class="launch-panel">
-      <div class="launch-copy">
-        <span class="mode-chip">PROTOTYPE</span>
-        <h2>실제 시험 흐름을<br>더미 100문제로 확인하세요.</h2>
-        <p>문제 원문과 정답은 배포되지 않습니다. 실제 회차는 iPad 파일 앱에서 JSON을 선택해 불러옵니다.</p>
-        <div class="launch-actions">
-          <button id="start-demo" type="button">100문제 데모 시작</button>
-          <label class="file-button secondary-button">
-            회차 JSON 불러오기
-            <input id="exam-file" type="file" accept="application/json,.json">
+      <div class="launch-heading">
+        <span class="mode-chip">STUDY MODE</span>
+        <h2>지금 상황에 맞는<br>학습 모드를 선택하세요.</h2>
+        <p>실제 문제와 정답은 공개 저장소에 포함되지 않습니다. 보유한 회차 JSON은 브라우저 안에서만 처리됩니다.</p>
+      </div>
+
+      <div class="mode-grid" aria-label="학습 모드 선택">
+        <article class="study-mode-card quick-mode-card">
+          <div class="mode-card-top">
+            <span class="mode-icon" aria-hidden="true">↯</span>
+            <span class="mode-chip">틈새학습</span>
+          </div>
+          <h3>잠깐씩 가볍게</h3>
+          <p>지하철이나 대기 시간에 일부 문제만 풀고, 저장된 지점부터 이어서 학습합니다.</p>
+          <ul>
+            <li>5·10·20문제 선택</li>
+            <li>제한시간 없이 학습시간 기록</li>
+            <li>매일 다른 문제 조합</li>
+          </ul>
+          <label class="quick-count-control">
+            한 번에 풀 문제
+            <select id="quick-count" aria-label="틈새학습 문제 수">
+              <option value="5">5문제</option>
+              <option value="10" selected>10문제</option>
+              <option value="20">20문제</option>
+            </select>
           </label>
-        </div>
-        <p id="loader-message" class="message" role="status"></p>
+          <div class="mode-actions">
+            <button id="start-quick-demo" type="button">더미로 바로 시작</button>
+            <label class="file-button secondary-button">
+              문제 JSON 불러오기
+              <input id="quick-file" type="file" accept="application/json,.json">
+            </label>
+          </div>
+        </article>
+
+        <article class="study-mode-card exam-mode-card">
+          <div class="mode-card-top">
+            <span class="mode-icon" aria-hidden="true">100</span>
+            <span class="mode-chip">실전 모의고사</span>
+          </div>
+          <h3>시험처럼 끝까지</h3>
+          <p>실제 필기시험과 동일한 문항 수와 제한시간으로 한 회차를 집중해서 풉니다.</p>
+          <ul>
+            <li>5과목 100문제</li>
+            <li>150분 카운트다운</li>
+            <li>답안지·검토 표시·결과 JSON</li>
+          </ul>
+          <div class="mode-stat"><strong>100</strong><span>문제</span><i></i><strong>150</strong><span>분</span></div>
+          <div class="mode-actions">
+            <button id="start-exam-demo" type="button">실전 데모 시작</button>
+            <label class="file-button secondary-button">
+              기출 회차 JSON 불러오기
+              <input id="exam-file" type="file" accept="application/json,.json">
+            </label>
+          </div>
+        </article>
       </div>
-      <div class="feature-grid" aria-label="프로토타입 기능">
-        <article><strong>100</strong><span>더미 문항</span></article>
-        <article><strong>150</strong><span>분 타이머</span></article>
-        <article><strong>1분</strong><span>자동 저장</span></article>
-        <article><strong>JSON</strong><span>결과 공유</span></article>
-      </div>
+      <p id="loader-message" class="message launch-message" role="status"></p>
     </section>
 
     <section id="exam" class="exam-workspace hidden" aria-live="polite">
@@ -106,8 +146,8 @@
 
     <section id="completed" class="completed-panel hidden">
       <span class="completion-icon">✓</span>
-      <p class="eyebrow">제출 완료</p>
-      <h2>시험 결과 파일이 준비됐습니다.</h2>
+      <p id="completion-eyebrow" class="eyebrow">제출 완료</p>
+      <h2 id="completion-title">시험 결과 파일이 준비됐습니다.</h2>
       <p id="completion-summary"></p>
       <div class="completion-actions">
         <button id="share-result" type="button">iPad에서 공유</button>
