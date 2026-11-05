@@ -85,6 +85,7 @@
               </select>
             </label>
           </div>
+          <p id="exam-completion-status" class="selection-status">문제은행을 등록하면 회차별 완료 횟수가 표시됩니다.</p>
           <div class="mode-actions">
             <button id="start-quick-bank" type="button" disabled>선택 과목 시작</button>
             <button id="start-quick-demo" type="button" class="secondary-button">더미 데모</button>
@@ -124,7 +125,35 @@
           </div>
         </article>
       </div>
-      <p class="json-help"><strong>문제은행이란?</strong> Codex가 여러 PDF를 과목·연도·회차별로 정리한 하나의 JSON 파일입니다. 한 번 등록하면 이 기기에 보관되며, Pages 서버나 GitHub로 업로드되지 않습니다.</p>
+
+      <section class="weakness-panel" aria-labelledby="weakness-heading">
+        <div class="weakness-copy">
+          <span class="mode-icon weakness-icon" aria-hidden="true">↻</span>
+          <div>
+            <span class="mode-chip">오답 보완학습</span>
+            <h3 id="weakness-heading">틀린 문제만 다시 풀기</h3>
+            <p id="weakness-status">아직 저장된 오답이 없습니다. 실전 회차를 완료하면 자동으로 모입니다.</p>
+          </div>
+        </div>
+        <div class="weakness-controls">
+          <label>
+            보완할 과목
+            <select id="wrong-subject" aria-label="오답 보완 과목" disabled>
+              <option>오답 없음</option>
+            </select>
+          </label>
+          <label>
+            한 번에 풀 문제
+            <select id="wrong-count" aria-label="오답 보완 문제 수" disabled>
+              <option value="5">5문제</option>
+              <option value="10" selected>10문제</option>
+              <option value="20">20문제</option>
+            </select>
+          </label>
+          <button id="start-wrong-review" type="button" disabled>오답 보완 시작</button>
+        </div>
+      </section>
+      <p class="json-help"><strong>문제은행이란?</strong> Codex가 2015~2022년 PBT와 2023~2026년 CBT PDF를 과목·연도·회차별로 정리한 하나의 JSON 파일입니다. 한 번 등록하면 이 기기에 보관되며, Pages 서버나 GitHub로 업로드되지 않습니다.</p>
       <p id="loader-message" class="message launch-message" role="status"></p>
     </section>
 

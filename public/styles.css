@@ -70,8 +70,17 @@ button:disabled, select:disabled { cursor: not-allowed; opacity: .48; }
 .filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: auto; }
 .filter-grid label { display: grid; gap: 7px; color: #48566c; font-size: 12px; font-weight: 800; }
 .filter-grid select { width: 100%; height: 42px; border: 1px solid var(--line); border-radius: 10px; padding: 0 30px 0 11px; background: #fff; color: #263246; font-weight: 800; }
+.selection-status { min-height: 20px; margin: 10px 2px 0 !important; color: var(--muted); font-size: 12px; font-weight: 700; }
 .mode-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 14px; }
 .mode-actions > * { width: 100%; text-align: center; }
+.weakness-panel { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 18px; padding: 24px; border: 1px solid #f0d6c9; border-radius: 22px; background: linear-gradient(120deg, #fff8f4, #fff); box-shadow: 0 16px 40px rgba(76, 45, 31, .05); }
+.weakness-copy { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.weakness-icon { flex: 0 0 auto; background: #9a4d2f; }
+.weakness-copy h3 { margin: 8px 0 4px; font-size: 21px; letter-spacing: -.025em; }
+.weakness-copy p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.weakness-controls { display: grid; grid-template-columns: minmax(145px, 1fr) 125px auto; align-items: end; gap: 9px; flex: 0 0 min(560px, 55%); }
+.weakness-controls label { display: grid; gap: 7px; color: #48566c; font-size: 12px; font-weight: 800; }
+.weakness-controls select { height: 44px; border: 1px solid var(--line); border-radius: 10px; padding: 0 30px 0 11px; background: #fff; color: #263246; font-weight: 800; }
 .json-help { margin: 18px 4px 0; padding: 13px 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.72); color: var(--muted); font-size: 13px; line-height: 1.6; }
 .json-help strong { color: #263246; }
 .launch-message { margin: 14px 4px 0; }
@@ -161,6 +170,8 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   .mode-grid { grid-template-columns: 1fr; }
   .bank-panel { align-items: stretch; flex-direction: column; }
   .bank-actions > * { flex: 1; }
+  .weakness-panel { align-items: stretch; flex-direction: column; }
+  .weakness-controls { flex: auto; width: 100%; }
   .study-mode-card { min-height: 390px; }
   .exam-workspace { display: block; }
   .exam-info-bar { padding-inline: 14px; }
@@ -188,6 +199,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   .mode-actions { grid-template-columns: 1fr; }
   .bank-actions { display: grid; }
   .filter-grid { grid-template-columns: 1fr; }
+  .weakness-controls { grid-template-columns: 1fr; }
   .question-stem { line-height: 1.65; }
   .completion-actions { display: grid; }
 }

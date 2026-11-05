@@ -5,6 +5,8 @@ const AUTO_SAVE_INTERVAL_MS = 60_000;
 const BANK_DB_NAME = "electrician-cbt";
 const BANK_STORE_NAME = "questionBanks";
 const ACTIVE_BANK_KEY = "active";
+const EXAM_PROGRESS_KEY = "electrician-cbt:exam-progress:v1";
+const WRONG_BOOK_KEY = "electrician-cbt:wrong-book:v1";
 const SUBJECT_ORDER = ["전기자기학", "전력공학", "전기기기", "회로이론 및 제어공학", "전기설비기술기준"];
 
 const elements = {
@@ -16,10 +18,15 @@ const elements = {
   startQuickBank: document.querySelector("#start-quick-bank"),
   startExamDemo: document.querySelector("#start-exam-demo"),
   startBankExam: document.querySelector("#start-bank-exam"),
+  startWrongReview: document.querySelector("#start-wrong-review"),
   quickSubject: document.querySelector("#quick-subject"),
   quickCount: document.querySelector("#quick-count"),
+  wrongSubject: document.querySelector("#wrong-subject"),
+  wrongCount: document.querySelector("#wrong-count"),
+  weaknessStatus: document.querySelector("#weakness-status"),
   examYear: document.querySelector("#exam-year"),
   examRound: document.querySelector("#exam-round"),
+  examCompletionStatus: document.querySelector("#exam-completion-status"),
   loaderMessage: document.querySelector("#loader-message"),
   exam: document.querySelector("#exam"),
   footer: document.querySelector("#exam-footer"),
@@ -67,9 +74,11 @@ elements.startQuickDemo.addEventListener("click", () => loadExam(createDemoExam(
 elements.startExamDemo.addEventListener("click", () => loadExam(createDemoExam(), "exam"));
 elements.startQuickBank.addEventListener("click", startQuickFromBank);
 elements.startBankExam.addEventListener("click", startExamFromBank);
+elements.startWrongReview.addEventListener("click", startWrongReview);
 elements.bankFile.addEventListener("change", registerQuestionBank);
 elements.clearBank.addEventListener("click", clearQuestionBank);
 elements.examYear.addEventListener("change", refreshRoundOptions);
+elements.examRound.addEventListener("change", updateExamCompletionStatus);
 elements.previous.addEventListener("click", () => movePage(-1));
 elements.next.addEventListener("click", () => movePage(1));
 elements.pageSize.addEventListener("change", changePageSize);
@@ -121,7 +130,7 @@ function activateQuestionBank(value) {
 }
 
 function validateQuestionBank(value) {
-  if (!value || typeof value !== "object" || value.schemaVersion !== 2) throw new Error("지원하는 문제은행 형식(v2)이 아닙니다.");
+  if (!value || typeof value !== "object" || value.schemaVersion !== 3) throw new Error("지원하는 문제은행 형식(v3)이 아닙니다.");
   if (!Array.isArray(value.questions) || value.questions.length === 0) throw new Error("문제가 없습니다.");
   const ids = new Set();
   value.questions.forEach((question, index) => {
@@ -155,6 +164,8 @@ function refreshBankControls() {
     elements.examRound.replaceChildren(new Option("연도 선택 필요", ""));
     for (const control of [elements.quickSubject, elements.examYear, elements.examRound, elements.startQuickBank, elements.startBankExam, elements.clearBank]) control.disabled = true;
     elements.bankStatus.textContent = "등록된 문제은행이 없습니다. 더미 데모는 바로 사용할 수 있습니다.";
+    elements.examCompletionStatus.textContent = "문제은행을 등록하면 회차별 완료 횟수가 표시됩니다.";
+    refreshWeaknessControls();
     return;
   }
 
@@ -165,6 +176,7 @@ function refreshBankControls() {
   elements.startQuickBank.disabled = false;
   elements.clearBank.disabled = false;
   refreshRoundOptions();
+  refreshWeaknessControls();
 
   const rounds = new Set(questions.filter((question) => Number.isInteger(question.source?.examYear) && Number.isInteger(question.source?.examRound)).map((question) => `${question.source.examYear}-${question.source.examRound}`));
   elements.bankStatus.textContent = `검증 ${questions.length.toLocaleString("ko-KR")}문제 · ${years.length}개 연도 · ${rounds.size}개 회차가 이 기기에 저장되어 있습니다.`;
@@ -178,9 +190,37 @@ function subjectRank(subject) {
 function refreshRoundOptions() {
   const year = Number(elements.examYear.value);
   const rounds = [...new Set(verifiedQuestions().filter((question) => question.source?.examYear === year && Number.isInteger(question.source?.examRound)).map((question) => question.source.examRound))].sort((a, b) => a - b);
-  elements.examRound.replaceChildren(...rounds.map((round) => new Option(`${round}회`, String(round))));
+  const progress = readStoredObject(EXAM_PROGRESS_KEY);
+  const format = examFormatForYear(year);
+  elements.examRound.replaceChildren(...rounds.map((round) => {
+    const completedCount = progress[`electrician-${year}-${round}`]?.completedCount || 0;
+    const completion = completedCount ? ` · ${completedCount}회 완료` : " · 미완료";
+    return new Option(`${round}회 · ${format}${completion}`, String(round));
+  }));
   elements.examRound.disabled = rounds.length === 0;
   elements.startBankExam.disabled = rounds.length === 0;
+  updateExamCompletionStatus();
+}
+
+function examFormatForYear(year) {
+  const explicit = verifiedQuestions().find((question) => question.source?.examYear === year && question.source?.examFormat)?.source.examFormat;
+  if (explicit) return explicit;
+  if (year >= 2015 && year <= 2022) return "PBT";
+  if (year >= 2023 && year <= 2026) return "CBT";
+  return "형식 미지정";
+}
+
+function updateExamCompletionStatus() {
+  const year = Number(elements.examYear.value);
+  const round = Number(elements.examRound.value);
+  if (!year || !round) {
+    elements.examCompletionStatus.textContent = "선택할 수 있는 완전한 회차가 없습니다.";
+    return;
+  }
+  const record = readStoredObject(EXAM_PROGRESS_KEY)[`electrician-${year}-${round}`];
+  elements.examCompletionStatus.textContent = record
+    ? `${year}년 ${round}회 ${examFormatForYear(year)} · ${record.completedCount}회 완료 · 최근 ${new Date(record.lastCompletedAt).toLocaleDateString("ko-KR")}`
+    : `${year}년 ${round}회 ${examFormatForYear(year)} · 아직 완료하지 않음`;
 }
 
 function startQuickFromBank() {
@@ -210,6 +250,47 @@ function startExamFromBank() {
     loadExam(buildExamPackage(questions, `electrician-${year}-${round}`, `${year}년 ${round}회 전기기사`, "real"), "exam");
   } catch (error) {
     elements.loaderMessage.textContent = `실전 모의고사 시작 실패: ${error.message}`;
+  }
+}
+
+function refreshWeaknessControls() {
+  const wrongBook = readStoredObject(WRONG_BOOK_KEY);
+  const bankQuestions = new Map(verifiedQuestions().map((question) => [question.id, question]));
+  const wrongQuestions = Object.values(wrongBook).map((record) => bankQuestions.get(record.questionId)).filter(Boolean);
+  const subjects = [...new Set(wrongQuestions.map((question) => question.subject))]
+    .sort((a, b) => subjectRank(a) - subjectRank(b) || a.localeCompare(b, "ko"));
+
+  elements.wrongSubject.replaceChildren();
+  if (!wrongQuestions.length) {
+    elements.wrongSubject.append(new Option(questionBank ? "오답 없음" : "문제은행 등록 필요", ""));
+    elements.wrongSubject.disabled = true;
+    elements.wrongCount.disabled = true;
+    elements.startWrongReview.disabled = true;
+    elements.weaknessStatus.textContent = questionBank
+      ? "아직 저장된 오답이 없습니다. 실전 회차를 완료하면 자동으로 모입니다."
+      : "문제은행을 등록한 뒤 실전 회차를 완료하면 오답이 자동으로 모입니다.";
+    return;
+  }
+
+  elements.wrongSubject.append(new Option("전과목", "all"), ...subjects.map((subject) => new Option(subject, subject)));
+  elements.wrongSubject.disabled = false;
+  elements.wrongCount.disabled = false;
+  elements.startWrongReview.disabled = false;
+  elements.weaknessStatus.textContent = `현재 보완할 오답 ${wrongQuestions.length}문제 · 맞힌 문제는 보완 목록에서 빠집니다.`;
+}
+
+function startWrongReview() {
+  try {
+    const subject = elements.wrongSubject.value;
+    const wrongBook = readStoredObject(WRONG_BOOK_KEY);
+    const candidates = verifiedQuestions()
+      .filter((question) => wrongBook[question.id] && (subject === "all" || question.subject === subject))
+      .sort((a, b) => wrongBook[b.id].wrongCount - wrongBook[a.id].wrongCount);
+    if (!candidates.length) throw new Error("선택한 과목에 보완할 오답이 없습니다.");
+    const label = subject === "all" ? "전과목" : subject;
+    loadExam(buildExamPackage(candidates, `wrong-review-${subject}`, `${label} 오답 보완학습`, "custom"), "wrong");
+  } catch (error) {
+    elements.loaderMessage.textContent = `오답 보완학습 시작 실패: ${error.message}`;
   }
 }
 
@@ -259,7 +340,7 @@ function prepareExamForStudyMode(source, studyMode) {
     return { ...source, timeLimitMinutes: 150, questionCount: 100 };
   }
 
-  const requestedCount = Number(elements.quickCount.value);
+  const requestedCount = Number(studyMode === "wrong" ? elements.wrongCount.value : elements.quickCount.value);
   const dateKey = koreaDateKey();
   const questions = [...source.questions]
     .sort((a, b) => dailyQuestionScore(source.examId, dateKey, a.id) - dailyQuestionScore(source.examId, dateKey, b.id))
@@ -268,7 +349,7 @@ function prepareExamForStudyMode(source, studyMode) {
   return {
     ...source,
     attemptId: `${source.attemptId}-quick-${dateKey}-${questions.length}`,
-    title: `틈새학습 ${questions.length}문제 · ${source.title}`,
+    title: `${studyMode === "wrong" ? "오답 보완" : "틈새학습"} ${questions.length}문제 · ${source.title}`,
     questionCount: questions.length,
     questions
   };
@@ -414,8 +495,8 @@ function startExamUi() {
   elements.footer.classList.remove("hidden");
   elements.title.textContent = examPackage.title;
   elements.mode.textContent = modeLabel();
-  elements.timerLabel.textContent = activeStudyMode === "quick" ? "학습 시간" : "남은 시간";
-  elements.finish.textContent = activeStudyMode === "quick" ? "학습 종료" : "시험 완료";
+  elements.timerLabel.textContent = activeStudyMode === "exam" ? "남은 시간" : "학습 시간";
+  elements.finish.textContent = activeStudyMode === "exam" ? "시험 완료" : "학습 종료";
   elements.pageSize.value = String(state.pageSize);
   buildAnswerSheet();
   renderPage();
@@ -426,6 +507,7 @@ function startExamUi() {
 
 function modeLabel() {
   if (activeStudyMode === "quick") return `틈새학습 · ${examPackage.questions.length}문제`;
+  if (activeStudyMode === "wrong") return `오답 보완 · ${examPackage.questions.length}문제`;
   return examPackage.mode === "development" ? "실전 데모" : "실전 모의고사";
 }
 
@@ -630,7 +712,7 @@ function changePageSize() {
 
 function updateTimer() {
   if (!state || state.status !== "in_progress") return;
-  if (state.studyMode === "quick") {
+  if (state.studyMode !== "exam") {
     const elapsed = Math.max(0, Date.now() - new Date(state.startedAt).getTime());
     elements.timer.textContent = formatDuration(elapsed);
     elements.timerPanel.classList.remove("warning");
@@ -683,7 +765,7 @@ function finishExam(reason, skipConfirmation = false) {
   if (!state || state.status !== "in_progress") return;
   const unanswered = examPackage.questions.length - answeredCount();
   if (!skipConfirmation) {
-    const action = activeStudyMode === "quick" ? "학습을 종료" : "시험을 완료";
+    const action = activeStudyMode === "exam" ? "시험을 완료" : "학습을 종료";
     const confirmed = window.confirm(`미응답 ${unanswered}문제입니다. ${action}하면 답안을 수정할 수 없습니다. 계속하시겠습니까?`);
     if (!confirmed) return;
   }
@@ -693,19 +775,89 @@ function finishExam(reason, skipConfirmation = false) {
   saveState();
   window.clearInterval(timerHandle);
   window.clearInterval(autoSaveHandle);
-  finalResult = buildResult();
+  const grading = gradeCurrentAttempt();
+  updateLearningProgress(grading);
+  finalResult = buildResult(grading);
   elements.exam.classList.add("hidden");
   elements.footer.classList.add("hidden");
   elements.completed.classList.remove("hidden");
-  elements.completionEyebrow.textContent = activeStudyMode === "quick" ? "학습 완료" : "제출 완료";
-  elements.completionTitle.textContent = activeStudyMode === "quick" ? "학습 기록 파일이 준비됐습니다." : "시험 결과 파일이 준비됐습니다.";
-  elements.completionSummary.textContent = `${examPackage.title} · 답변 ${examPackage.questions.length - unanswered}문제 · 미응답 ${unanswered}문제`;
+  elements.completionEyebrow.textContent = activeStudyMode === "exam" ? "제출 완료" : "학습 완료";
+  elements.completionTitle.textContent = activeStudyMode === "exam" ? "시험 결과 파일이 준비됐습니다." : "학습 기록 파일이 준비됐습니다.";
+  const scoreSummary = grading ? ` · 정답 ${grading.correctCount} · 오답 ${grading.wrongCount}` : "";
+  elements.completionSummary.textContent = `${examPackage.title} · 답변 ${examPackage.questions.length - unanswered}문제 · 미응답 ${unanswered}문제${scoreSummary}`;
   if (!skipConfirmation) downloadJson(finalResult, resultFilename());
 }
 
-function buildResult() {
+function gradeCurrentAttempt() {
+  if (!questionBank) return null;
+  const bankQuestions = new Map(verifiedQuestions().map((question) => [question.id, question]));
+  const items = examPackage.questions.map((question) => {
+    const bankQuestion = bankQuestions.get(question.id);
+    const selectedChoiceId = state.answers[question.id] || null;
+    const isCorrect = bankQuestion?.answer?.choiceId && selectedChoiceId
+      ? selectedChoiceId === bankQuestion.answer.choiceId
+      : selectedChoiceId === null ? null : false;
+    return { questionId: question.id, selectedChoiceId, isCorrect };
+  });
+  if (items.every((item) => !bankQuestions.has(item.questionId))) return null;
+  const correctCount = items.filter((item) => item.isCorrect === true).length;
+  const wrongCount = items.filter((item) => item.isCorrect === false).length;
+  const unansweredCount = items.filter((item) => item.selectedChoiceId === null).length;
   return {
-    schemaVersion: 1,
+    items,
+    correctCount,
+    wrongCount,
+    unansweredCount,
+    scorePercent: Math.round((correctCount / items.length) * 1000) / 10
+  };
+}
+
+function updateLearningProgress(grading) {
+  if (!grading) return;
+  const now = new Date().toISOString();
+  const wrongBook = readStoredObject(WRONG_BOOK_KEY);
+
+  if (activeStudyMode === "exam" && examPackage.mode === "real") {
+    const progress = readStoredObject(EXAM_PROGRESS_KEY);
+    const previous = progress[examPackage.examId];
+    progress[examPackage.examId] = {
+      completedCount: (previous?.completedCount || 0) + 1,
+      lastCompletedAt: now,
+      lastScorePercent: grading.scorePercent
+    };
+    localStorage.setItem(EXAM_PROGRESS_KEY, JSON.stringify(progress));
+  }
+
+  grading.items.forEach((item) => {
+    if (item.isCorrect === false) {
+      const previous = wrongBook[item.questionId];
+      wrongBook[item.questionId] = {
+        questionId: item.questionId,
+        wrongCount: (previous?.wrongCount || 0) + 1,
+        lastWrongAt: now,
+        lastExamId: examPackage.examId
+      };
+    } else if (activeStudyMode === "wrong" && item.isCorrect === true) {
+      delete wrongBook[item.questionId];
+    }
+  });
+  localStorage.setItem(WRONG_BOOK_KEY, JSON.stringify(wrongBook));
+  refreshWeaknessControls();
+  refreshRoundOptions();
+}
+
+function readStoredObject(key) {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildResult(grading) {
+  return {
+    schemaVersion: 2,
     sessionId: state.sessionId,
     examId: state.examId,
     attemptId: state.attemptId,
@@ -717,12 +869,19 @@ function buildResult() {
     deadlineAt: state.deadlineAt,
     submittedAt: state.submittedAt,
     timeLimitMinutes: examPackage.timeLimitMinutes,
+    grading: grading ? {
+      correctCount: grading.correctCount,
+      wrongCount: grading.wrongCount,
+      unansweredCount: grading.unansweredCount,
+      scorePercent: grading.scorePercent
+    } : null,
     answers: examPackage.questions.map((question, index) => ({
       questionNumber: index + 1,
       questionId: question.id,
       selectedChoiceId: state.answers[question.id] || null,
       flagged: state.flaggedQuestionIds.includes(question.id),
-      memo: state.memos[question.id] || null
+      memo: state.memos[question.id] || null,
+      isCorrect: grading?.items.find((item) => item.questionId === question.id)?.isCorrect ?? null
     }))
   };
 }
@@ -735,7 +894,7 @@ async function shareResult() {
     return;
   }
   try {
-    const resultKind = activeStudyMode === "quick" ? "학습 기록" : "시험 결과";
+    const resultKind = activeStudyMode === "exam" ? "시험 결과" : "학습 기록";
     await navigator.share({ files: [file], title: `전기기사 CBT ${resultKind}`, text: `Codex 분석용 ${resultKind} JSON` });
     elements.shareMessage.textContent = "공유가 완료되었습니다.";
   } catch (error) {
@@ -748,7 +907,7 @@ function createResultFile() {
 }
 
 function resultFilename() {
-  const prefix = activeStudyMode === "quick" ? "study-result" : "exam-result";
+  const prefix = activeStudyMode === "exam" ? "exam-result" : "study-result";
   return `${prefix}-${state.sessionId}.json`;
 }
 
